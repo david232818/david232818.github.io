@@ -4,3 +4,8 @@ title: "p4c"
 name: Kown Young Jung
 description: NULL
 url: "https://david232818.github.io"
+
+permalink: /:title/
+paginate: 5
+paginate_path: /page:num/
+timezone: Asia/Seoul
