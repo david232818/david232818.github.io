@@ -73,7 +73,7 @@ pointer type 그리고 modifiable한 lvalue이어야 함을 정한다.
  그러므로 상기 서술한 풀이 코드에서 s는 array type을 가지므로 modfiable하지
 않은 lvalue가 되어 그 자체로는 post 또는 prefix increment opertor의
 operand가 될 수 없다. 그래서 s는 그 자체로는 while loop에서 사용될 수 없고
-반드시 char * type을 가지는 변수를 사용해서 접근해야 하는 것이다.
+반드시 char * type을 가지는 변수를 사용해서 접근해야 한다.
 
 ---[ 4. References
 [1] "[기초-입출력] 단어 1개 입력받아 나누어 출력하기(설명)", CodeUp,
