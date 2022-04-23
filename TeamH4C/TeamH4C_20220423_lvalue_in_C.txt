@@ -1,0 +1,85 @@
+			[TeamH4C] 코드업 1024번
+
+
+						작성자: 정권영
+
+
+
+---[ Contents
+     1. 1024번 문제
+     2. 문제 풀이
+     3. C에서의 lvalue
+     4. References
+
+
+
+
+
+---[ 1. 1024번 문제
+ [1]은 다음과 같이 문제를 제시한다.
+
+-------------------------------------------------------
+단어를 1개 입력받는다.
+
+입력받은 단어(영어)의 각 문자를
+
+한줄에 한 문자씩 분리해 출력한다.
+-------------------------------------------------------
+
+---[ 2. 문제 풀이
+ C 언어가 제공하는 statement의 의미를 활용하여 문제를 해석하면
+"단어가 끝날 때까지 그 문자를 하나씩 출력한다"가 된다. 여기서 어떤 조건이
+충족될 때까지 동작을 반복하는 것은 while loop가 가진 의미이다. 이로부터
+다음과 같은 코드를 작성할 수 있다.
+
+-------------------------------------------------------
+#include <stdio.h>
+
+int main()
+{
+	char s[21], *sp;
+
+	scanf("%s", s);
+	sp = s;
+	while (*sp != '\0') {
+	      printf("\'%c\'\n", *sp);
+	      sp++;
+	}
+	return 0;
+}
+-------------------------------------------------------
+
+---[ 3. C에서의 lvalue
+ [2, Sec. 6.5]는 expression을 "값의 연산을 specifies하는, 또는 object나
+함수를 designate하는, 또는 side effects를 발생시키는, 또는 그것의 조합을
+수행하는 operators와 operands의 sequence"라고 정의한다.
+
+ 그리고 [2, Sec. 6.3.2.1]은 lvalue를 object type 또는 void뿐만 아니라
+기타 다른 incomplete type을 포함하는 것에 의한 expression이라고 정의하고,
+modifiable lvalue를 array type을 가지지 않는, incomplete type을 가지지
+않는, const-qualified type을 가지지 않는, 그리고 만약 그것이
+structure이라면 (포함하는 모든 aggregates 또는 union에 대해 재귀적으로)
+const-qualified type을 가지는 member를 가지지 않는 경우라고 정의한다.
+
+ 여기서 [2, Sec. 6.2.5]는 여러 types를 설명하는 데 그 중 array type이
+있다. [2, Sec. 6.2.5]는 array type이 particular member object type을
+가지는 objects의 집합이 저장된 메모리로 정의하며 array type은 element
+type으로부터 파생되는 array type derivation을 통해 구축됨을 설명한다.
+
+ 또한 [2, Sec. 6.5.2.4], [2, Sec.6.5.3.1]은 Constraints에서 prefix,
+postfix increment operator가 qualified 또는 unqualified한 real 또는
+pointer type 그리고 modifiable한 lvalue이어야 함을 정한다.
+
+ 그러므로 상기 서술한 풀이 코드에서 s는 array type을 가지므로 modfiable하지
+않은 lvalue가 되어 그 자체로는 post 또는 prefix increment opertor의
+operand가 될 수 없다. 그래서 s는 그 자체로는 while loop에서 사용될 수 없고
+반드시 char * type을 가지는 변수를 사용해서 접근해야 하는 것이다.
+
+---[ 4. References
+[1] "[기초-입출력] 단어 1개 입력받아 나누어 출력하기(설명)", CodeUp,
+2012. [Online]. Available: https://codeup.kr/problem.php?id=1024,
+[Accessed Apr. 24, 2022]
+
+[2] ISO/IEC JTC 1/SC 22/WG 14, "ISO/IEC 9899:1999, Programming
+languages -- C", ISO/IEC, 1999
+
