@@ -125,4 +125,4 @@ https://codeup.kr/problem.php?id=1001, [Accessed Apr. 23, 2022]
 languages -- C", ISO/IEC, 1999
 
 [3] Richard M. Stallman, Zachary Weinberg, "The C Preprocessor
-Manual", Free Software Foundation, Inc., 2022
+Manual", Free Software Foundation Inc., 2022
