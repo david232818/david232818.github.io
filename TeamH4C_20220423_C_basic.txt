@@ -1,0 +1,128 @@
+			[TeamH4C] 코드업 1001번
+
+
+						작성자: 정권영
+
+
+
+---[ Contents
+     1. 1001번 문제
+     2. 문제 풀이
+     3. C 코드의 Semantics
+     4. References
+
+
+
+
+
+---[ 1. 1001번 문제
+ [1]은 다음과 같이 문제를 제시한다.
+
+-------------------------------------------------------
+C/C++언어에서 가장 기본적인 명령이 출력문이다.
+printf()를 이용해 다음 단어를 출력하시오.
+
+Hello
+-------------------------------------------------------
+
+---[ 2. 문제 풀이
+-------------------------------------------------------
+#include <stdio.h>
+
+int main()
+{
+	printf("Hello\n");
+	return 0;
+}
+-------------------------------------------------------
+
+---[ 3. C 코드의 Semantics
+ [2, Sec. 5.1.1.1]은 C 프로그램의 구조를 설명하는데 이는 다음과 같은 그림으로
+정리될 수 있다.
+
+-------------------------------------------------------
++------[preprocessing]-------------+
+|-----[translation unit]-----------|
+|        .c, .h                    |
+|          |                       |
+|          |                       |
+|          v                       |
+| #include [source or header file] |
+|                                  |
+| ...                              |
+| /* c codes */                    |
+| ...                              |
++----------------------------------+
+          |
+	  |
+	  |<-- Preprocessing
+	  |
+	  V
+   [translation unit]
+          |
+	  |
+	  |
+	  V
+   [translated translation unit] -> .o file
+          |
+	  |<-- Linking
+	  |
+	  V
+      [executable program]	  
+-------------------------------------------------------
+
+ [2, Sec. 5.1.1.2]는 translation phase를 설명하고 그 중에 #include
+directive의 semantics가 있다. 즉, #include directive는 명시된 header
+또는 source file이 재귀적으로 phase 1에서 phase4를 거치도록 만든다.
+이 과정에는 macro invocation expansion, _Pragma unary operator
+execution 등이 포함된다. 그리고 [2, Sec. 6.10.2]는 Source file
+inclusion을 설명하는데 #include directive는 <,>로 둘러싸인
+하나의 header file을 찾고 directive 코드를 그 header의 내용 전체로
+대체한다. 이때 그 header의 위치가 어떻게 특정되는지 또는 header를 어떻게
+식별하는지는 implementaion-defined이다. 이때 [3, Sec. 2.3]은 <,>로
+include되는 경우에는 기본 동작으로 standard system directories에서만
+header file을 검색함을 명시한다.
+
+ [2, Sec. 5.1.2.2.1]은 program startup에서 호출되는 함수의 이름은
+main이고, return type은 int이어야 하고, parameters는 없거나 int argc,
+char *argv[]와 같은 두 parameters가 있는 경우이어야 하며, 이 함수는
+prototype이 없음을 언급한다.
+
+ [2, Sec. 7.1.2]는 각각의 라이브러리 함수는 header에 그 prototype이
+선언되고, 이는 #include preprocessing directive에 의해 사용가능해지며,
+header는 라이브러리 함수의 prototype 이외에 기타 필요한 types,
+addtional macros의 집합을 선언함을 설명한다.
+
+ [2, Sec. 5.1.1.2]가 설명하는 translation phase의 마지막 단계에서는
+모든 외부 object와 함수 참조가 가능하도록 계산되고, 라이브러리 요소들은
+외부 참조를 수행하기 위해, 그리고 현재 translation unit에 정의되지 않은
+objects를 위해 link되며, translation implementation이 translate한
+모든 translation unit은 그 실행 환경에서 실행될 수 있도록 만드는
+정보들을 포함하는 프로그램 이미지로 합쳐진다.
+
+ 상기에 서술한 내용을 [1]이 제시하는 문제에 적용하여 정리하면 다음과 같다:
+
+-------------------------------------------------------
+#include <stdio.h> => Implementation에서 정하는 위치에서 stdio.h 파일을
+	 	      하나 찾아서 그 내용 전체로 대체한다.
+
+int main()	   => Program startup에서 호출되는 함수이다. 즉, 실질적인
+    		      프로그램이 된다.
+{
+	printf("Hello\n"); => 위의 #include directive로 사용가능해진
+			      라이브러리 함수이다. 이 함수는 translation
+			      phase의 마지막 단계에서 참조가 가능해지도록
+			      link된다.
+	return 0;
+}
+-------------------------------------------------------
+
+---[ 4. References
+[1] "[기초-출력] 출력하기01(설명)", CodeUp, 2012. [Online]. Available:
+https://codeup.kr/problem.php?id=1001, [Accessed Apr. 23, 2022]
+
+[2] ISO/IEC JTC 1/SC 22/WG 14, "ISO/IEC 9899:1999, Programming
+languages -- C", ISO/IEC, 1999
+
+[3] Richard M. Stallman, Zachary Weinberg, "The C Preprocessor
+Manual", Free Software Foundation, Inc., 2022
