@@ -1,0 +1,122 @@
+			[TeamH4C] 코드업 1038번
+
+
+						작성자: 정권영
+
+
+
+---[ Contents
+     1. 1038번 문제
+     2. 문제 풀이
+     3. C99 표준이 명시하는 타입 별 저장가능한 값의 범위
+     4. References
+
+
+
+
+
+---[ 1. 1038번 문제
+ [1]은 다음과 같이 문제를 제시한다.
+
+-------------------------------------------------------
+정수 2개를 입력받아 합을 출력하는 프로그램을 작성해보자.
+(단, 입력되는 정수는 -1073741824 ~ 1073741824 이다.)
+
+입력
+2개의 정수가 공백으로 구분되어 입력된다.
+** 주의 : 계산의 결과가 int 범위를 넘어가는지를 잘 생각해 보아야 한다.
+
+
+출력
+두 정수의 합을 출력한다.
+-------------------------------------------------------
+
+---[ 2. 문제 풀이
+-------------------------------------------------------
+#include <stdio.h>
+#include <stdint.h>
+
+int main()
+{
+    int32_t n1, n2;
+    
+    scanf("%d %d", &n1, &n2);
+    printf("%lld\n", (long long) n1 + n2);
+    return 0;
+}
+-------------------------------------------------------
+
+---[ 3. C99 표준이 명시하는 타입 별 저장가능한 값의 범위
+ [2, Sec. 4]는 strictly conforming program을 [2]에서 특정한 언어와
+라이브러리의 기능만을 사용하는 프로그램으로 정의하며 명시되지 않은 것,
+정의되지 않은 것, 또는 implementation-defined behavior에 의존하는
+출력을 내어서는 안되고, minimum implementation limit을 넘어서도 안됨을
+명시한다. 그리고 [2, Sec. 4]는 conformin program은 conforming
+implementation이 허용할 수 있으며, 이때 strictly conforming program은
+conforming implementation들에서 최대의 이식성을 가짐을 명시한다.
+
+ [2, Sec. 5.2.4.2.1]은 [2, Sec. 5.2.4.2]가 설명하는, 타입이 저장가능한
+값에 대한 문서화를 요구하는 <limits.h>의 기준을 제시하면서 implementation-
+defined values가 제시된 기준값보다 크거나 같을 것을 명시하고 있다. 그리고
+[2, Sec. 5.2.4.2.1]은 다음과 같이 기준을 제시한다.
+
+-------------------------------------------------------
+— number of bits for smallest object that is not a bit-field (byte)
+CHAR_BIT 8
+— minimum value for an object of type signed char
+SCHAR_MIN -127 // −(2^7 − 1)
+— maximum value for an object of type signed char
+SCHAR_MAX +127 // 2^7 − 1
+— maximum value for an object of type unsigned char
+UCHAR_MAX 255 // 2^8 − 1
+— minimum value for an object of type char
+CHAR_MIN see below
+— maximum value for an object of type char
+CHAR_MAX see below
+— maximum number of bytes in a multibyte character, for any supported locale
+MB_LEN_MAX 1
+— minimum value for an object of type short int
+SHRT_MIN -32767 // −(2^15 − 1)
+— maximum value for an object of type short int
+SHRT_MAX +32767 // 2^15 − 1
+— maximum value for an object of type unsigned short int
+USHRT_MAX 65535 // 2^16 − 1
+— minimum value for an object of type int
+INT_MIN -32767 // −(2^15 − 1)
+— maximum value for an object of type int
+INT_MAX +32767 // 2^15 − 1
+— maximum value for an object of type unsigned int
+UINT_MAX 65535 // 2^16 − 1
+— minimum value for an object of type long int
+LONG_MIN -2147483647 // −(2^31 − 1)
+— maximum value for an object of type long int
+LONG_MAX +2147483647 // 2^31 − 1
+— maximum value for an object of type unsigned long int
+ULONG_MAX 4294967295 // 2^32 − 1
+— minimum value for an object of type long long int
+LLONG_MIN -9223372036854775807 // −(2^63 − 1)
+— maximum value for an object of type long long int
+LLONG_MAX +9223372036854775807 // 2^63 − 1
+— maximum value for an object of type unsigned long long int
+ULLONG_MAX 18446744073709551615 // 2^64 − 1
+
+- CHAR_MIN은 SCHAR_MIN과 같아야 하고, CHAR_MAX는 SCHAR_MAX와 같아야
+한다. 그렇지 않다면, CHAR_MIN은 0이고, CHAR_MAX는 UCHAR_MAX와 같아야
+한다. 그리고 UCHAR_MAX는 2^(CHAR_BIT)-1과 같아야 한다.
+-------------------------------------------------------
+
+여기서 INT_MIN과 INT_MAX의 값이 각각 -32767, 32767임에 주목하자. 즉, C99
+표준은 int 타입의 범위를 32비트가 아닌 16비트로 명시하고 있는 것이다.
+
+ 상기에 서술한 strictly conforming program의 정의와 <limits.h>의 기준을
+보았을 때 int 타입의 변수가 저장할 수 있는 값의 범위를 [1]이 제시한 문제에서와
+같이 32비트로 가정하는 것은 implementation-defined behavior에 의존하는
+경우에 해당된다.
+
+---[ 4. References
+[1] "[기초-산술연산] 정수 2개 입력받아 합 출력하기1(설명)", CodeUP, 2012.
+[Online]. Available: https://codeup.kr/problem.php?id=1038,
+[Accessed Apr. 30, 2022]
+
+[2] ISO/IEC JTC 1/SC 22/WG 14, "ISO/IEC 9899:1999, Programming
+languages -- C", ISO/IEC, 1999
