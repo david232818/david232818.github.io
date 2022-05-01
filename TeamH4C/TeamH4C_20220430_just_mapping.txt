@@ -61,4 +61,4 @@ int main()
 ---[ 3. References
 [1] "[기초-조건/선택실행구조] 월 입력받아 계절 출력하기(설명)", CodeUP,
 2012. [Online]. Available: https://codeup.kr/problem.php?id=1070,
-[Accessed Apr. 30, 2022
+[Accessed Apr. 30, 2022]
