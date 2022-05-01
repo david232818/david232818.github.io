@@ -36,10 +36,11 @@ Bitwise XOR의 특성을 활용하여 풀 수도 있다. 이는 다음과 같이
 
 -------------------------------------------------------
 #include <stdio.h>
+#include <stdint.h>
 
 int main()
 {
-    int a, b, res;
+    int32_t a, b, res;
     
     scanf("%d %d", &a, &b);
     if (a ^ b)
