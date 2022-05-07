@@ -7,8 +7,8 @@
 
 ---[ Contents
      1. 1079번 문제
-     2. 문제 풀이
-     3. C에서의 while statement
+     2. Getchar 함수와 while statement
+     3. 문제 풀이
      4. References
 
 
@@ -16,6 +16,88 @@
 
 
 ---[ 1. 1079번 문제
+ [1]은 다음과 같이 문제를 제시한다.
+
+-------------------------------------------------------
+'q'가 입력될 때까지 입력한 문자를 계속 출력하는 프로그램을 작성해보자.
+
+입력
+문자들이 1개씩 계속해서 입력된다.
+
+
+출력
+'q'가 입력될 때까지 입력된 문자를 줄을 바꿔 한 줄씩 출력한다.
+-------------------------------------------------------
+
+---[ 2. Getchar 함수와 while statement
+ [2, Sec. 7.19.7.6]은 getchar 함수를 소개하면서 stdin이 argument로
+전달된 getc와 같다고 설명한다. 그리고 [2, Sec. 7.19.7.5]는 getc 함수를
+소개하면서 fgetc와 같다고 설명한다. 그리고 [2, Sec. 7.19.7.1]은 fgetc
+함수를 소개하면서, stream argument가 가리키는 입력 stream의 end-of-file
+indicator가 set되지 않았고, 다음 문자 (next character) 가 존재한다면
+fgetc는 이를 unsigned char로 얻어오고 int로 return하며, 이 stream의
+file position indicator를 (만약 정의되어 있다면) 증가시킨다고 설명한다.
+
+ 상기 서술한 [2, Sec. 7.19.7.1]의 설명에서 fgetc는 문자를 읽어들인다는
+표현은 찾을 수 없다. 이에 관해서는 C의 표준 입출력의 구현에 대해 알 필요가
+있다. [3, Ch. 8]은 표준 입출력, 파일 시스템, 메모리 동적 할당을 C 언어로만
+구현하는 것을 다루고 특히 [3, Ch. 8.5]가 전형적인 표준 입출력의 구현을
+다룬다. [3, Ch. 8.5]는 다음과 같이 file stream의 정보 (버퍼에 남은 문자 수,
+다음 문자를 가리키는 포인터, 버퍼의 주소, 파일 접근 모드, 파일 기술자) 를 담은
+structure를 제시하고 이 structure를 핸들링하는 함수와 매크로를 정의한다.
+
+-------------------------------------------------------
+typedef struct _iobuf {
+	int cnt; /* characters left */
+	char *ptr; /* next character position */
+	char *base; /* location of buffer */
+	int flag; /* mode of file access */
+	int fd; /* file descriptor */
+} FILE;
+-------------------------------------------------------
+
+그리고 이 정의들을 살펴보면 실질적으로 문자를 읽어들이는 것은 read syscall이고
+나머지 부분은 읽어들인 후 버퍼를 어떻게 다루고 경우에 따라 어떻게
+파일 접근 모드 (flag) 를 설정할 것인지에 대한 것이다. 즉, fgetc와 같은
+함수들은 전달된 stream argument가 가리키는 stream (FILE structure)
+의 버퍼에 저장된 문자들 중에서 이전에 이미 얻은 문자(열)의 다음 위치에 있는
+문자(열)을 얻어오는 기능을 수행한다.
+
+ [2, Sec. 6.5.16]은 assignment가 expression이 됨을 보이고 있으며
+이때 assignment expression의 값은 assignment가 수행된 이후의 left
+operand의 값이지만 이는 lvalue가 아님을 설명하고 있다. 따라서 assignment는
+expression의 (lvalue가 아닌) 위치에 나타날 수 있다.
+
+ 여기서 [2, Sec. 6.8.5]가 보이듯이 while statement는 다음과 같은 syntax를
+가진다.
+
+-------------------------------------------------------
+while ( expression ) statement
+-------------------------------------------------------
+
+이는 while statement의 expression에 assignment도 나타날 수 있음을
+의미한다.
+
+---[ 3. 문제 풀이
+ 상기 서술한 요소들을 조합하여 다음과 같은 코드를 작성할 수 있다.
+
+-------------------------------------------------------
+#include <stdio.h>
+
+int main()
+{
+    char c;
+    
+    while ((c = getchar()) != 'q') {
+        if (c == ' ')
+            printf("\n");
+        else
+            printf("%c", c);
+    }
+    printf("%c\n", c);
+    return 0;
+}
+-------------------------------------------------------
 
 ---[ 4. References
 [1] "[기초-종합] 원하는 문자가 입력될 때까지 반복 출력하기", CodeUP, 2012.
@@ -24,3 +106,6 @@
 
 [2] ISO/IEC JTC 1/SC 22/WG 14, "ISO/IEC 9899:1999, Programming
 languages -- C", ISO/IEC, 1999
+
+[3] Brian W. Kernighan, Dennis M. Ritchie, "The C Programming
+Language Second Edition", AT&T Bell Laboratories, 1988
