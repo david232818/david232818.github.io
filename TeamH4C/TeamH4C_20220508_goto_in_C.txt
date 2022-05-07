@@ -8,7 +8,7 @@
 ---[ Contents
      1. 1071번 문제
      2. 문제 풀이
-     3. C에서의 goto statement
+     3. Goto statement의 constraints와 semantics
      4. References
 
 
@@ -54,7 +54,7 @@ Loop:
 }
 -------------------------------------------------------
 
----[ 3. C에서의 goto statement
+---[ 3. Goto statement의 constraints와 semantics
  [2, Sec. 6.8.6.1]은 goto statement의 constraints와 semantics에 대해서
 설명하고 있고, 그것은 goto statement에서의 identifier는 함수 내의 임의의 위치에
 존재하는 label을 가져야 하고 variable modified type을 가지는 identifier의
