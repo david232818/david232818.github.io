@@ -1,0 +1,118 @@
+			[TeamH4C] 코드업 1071번
+
+
+						작성자: 정권영
+
+
+
+---[ Contents
+     1. 1071번 문제
+     2. 문제 풀이
+     3. C에서의 goto statement
+     4. References
+
+
+
+
+
+---[ 1. 1071번 문제
+ [1]은 다음과 같이 문제를 제시한다.
+
+-------------------------------------------------------
+정수가 순서대로 입력된다.
+-2147483648 ~ +2147483647, 단 개수는 알 수 없다.
+
+0이 아니면 입력된 정수를 출력하고, 0이 입력되면 출력을 중단해보자.
+while( ), for( ), do~while( ) 등의 반복문을 사용할 수 없다.
+
+입력
+정수가 순서대로 입력된다.
+-2147483648 ~ +2147483647, 단 개수는 알 수 없다.
+
+
+출력
+입력된 정수를 줄을 바꿔 하나씩 출력하는데, 0이 입력되면 종료한다.
+(0은 출력하지 않는다.)
+-------------------------------------------------------
+
+---[ 2. 문제 풀이
+-------------------------------------------------------
+#include <stdio.h>
+#include <stdint.h>
+
+int main()
+{
+    int32_t n;
+    
+Loop:
+    scanf("%d", &n);
+    if (n) {
+        printf("%d\n", n);
+        goto Loop;
+    }
+    return 0;
+}
+-------------------------------------------------------
+
+---[ 3. C에서의 goto statement
+ [2, Sec. 6.8.6.1]은 goto statement의 constraints와 semantics에 대해서
+설명하고 있고, 그것은 goto statement에서의 identifier는 함수 내의 임의의 위치에
+존재하는 label을 가져야 하고 variable modified type을 가지는 identifier의
+scope 밖에서 안으로 goto statement를 통해 점프해서는 안된다는 것이며, goto
+statement의 기능은 함수 내에 위치하는 label을 prefix로 가지는 statement로의
+무조건적 점프라는 것이다.
+
+ 여기서 [2, Sec. 6.2.1]은 label이 function scope를 가지는 유일한
+identifier이며, 함수 내의 임의의 위치에 나타날 수 있고, 문법적인 코드 (뒤에 :을
+붙이는 것) 에 의해 암묵적으로 declare될 수 있음을 설명하고 있다.
+
+ Goto statement를 통해 함수의 어느 위치로든 점프할 수 있기 때문에, 이를 사용하여
+반복문의 기능을 구현할 수 있다. 그리고 이러한 구현은 다음과 같이 컴파일된
+어셈블리어 코드와도 유사한 부분이 있다.
+
+-------------------------------------------------------
+000000000000071a <main>:
+ 71a:   55                      push   %rbp
+ 71b:   48 89 e5                mov    %rsp,%rbp
+ 71e:   48 83 ec 10             sub    $0x10,%rsp
+ 722:   64 48 8b 04 25 28 00    mov    %fs:0x28,%rax
+ 729:   00 00
+ 72b:   48 89 45 f8             mov    %rax,-0x8(%rbp)
+ 72f:   31 c0                   xor    %eax,%eax
+ 731:   48 8d 45 f4             lea    -0xc(%rbp),%rax
+ 735:   48 89 c6                mov    %rax,%rsi
+ 738:   48 8d 3d d5 00 00 00    lea    0xd5(%rip),%rdi
+# 814 <_IO_stdin_used+0x4>
+ 73f:   b8 00 00 00 00          mov    $0x0,%eax
+ 744:   e8 a7 fe ff ff          callq  5f0 <__isoc99_scanf@plt>
+ 749:   8b 45 f4                mov    -0xc(%rbp),%eax
+ 74c:   85 c0                   test   %eax,%eax
+ 74e:   74 18                   je     768 <main+0x4e>
+ 750:   8b 45 f4                mov    -0xc(%rbp),%eax
+ 753:   89 c6                   mov    %eax,%esi
+ 755:   48 8d 3d bb 00 00 00    lea    0xbb(%rip),%rdi
+# 817 <_IO_stdin_used+0x7>
+ 75c:   b8 00 00 00 00          mov    $0x0,%eax
+ 761:   e8 7a fe ff ff          callq  5e0 <printf@plt>
+ 766:   eb c9                   jmp    731 <main+0x17>
+ 768:   b8 00 00 00 00          mov    $0x0,%eax
+ 76d:   48 8b 55 f8             mov    -0x8(%rbp),%rdx
+ 771:   64 48 33 14 25 28 00    xor    %fs:0x28,%rdx
+ 778:   00 00
+ 77a:   74 05                   je     781 <main+0x67>
+ 77c:   e8 4f fe ff ff          callq  5d0 <__stack_chk_fail@plt>
+ 781:   c9                      leaveq
+ 782:   c3                      retq
+-------------------------------------------------------
+
+ Goto statement는 반복문을 구현하는 것 이외에도 다중 loop를 탈출하거나,
+조건에 따른 오류를 처리할 때 유용하게 사용될 수 있다. 하지만 goto statement의
+오남용은 결코 좋을 수 없다.
+
+---[ 4. References
+[1] "[기초-반복실행구조] 0 입력될 때까지 무한 출력하기1(설명)", CodeUP, 2012.
+[Online]. Available: https://codeup.kr/problem.php?id=1071,
+[Accessed Apr. 23, 2022]
+
+[2] ISO/IEC JTC 1/SC 22/WG 14, "ISO/IEC 9899:1999, Programming
+languages -- C", ISO/IEC, 1999
