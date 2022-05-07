@@ -1,0 +1,26 @@
+			[TeamH4C] 코드업 1079번
+
+
+						작성자: 정권영
+
+
+
+---[ Contents
+     1. 1079번 문제
+     2. 문제 풀이
+     3. C에서의 while statement
+     4. References
+
+
+
+
+
+---[ 1. 1079번 문제
+
+---[ 4. References
+[1] "[기초-종합] 원하는 문자가 입력될 때까지 반복 출력하기", CodeUP, 2012.
+[Online]. Available: https://codeup.kr/problem.php?id=1079,
+[Accessed May. 08, 2022]
+
+[2] ISO/IEC JTC 1/SC 22/WG 14, "ISO/IEC 9899:1999, Programming
+languages -- C", ISO/IEC, 1999

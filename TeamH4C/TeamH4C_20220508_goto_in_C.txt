@@ -112,7 +112,7 @@ identifier이며, 함수 내의 임의의 위치에 나타날 수 있고, 문법
 ---[ 4. References
 [1] "[기초-반복실행구조] 0 입력될 때까지 무한 출력하기1(설명)", CodeUP, 2012.
 [Online]. Available: https://codeup.kr/problem.php?id=1071,
-[Accessed Apr. 23, 2022]
+[Accessed May. 08, 2022]
 
 [2] ISO/IEC JTC 1/SC 22/WG 14, "ISO/IEC 9899:1999, Programming
 languages -- C", ISO/IEC, 1999
