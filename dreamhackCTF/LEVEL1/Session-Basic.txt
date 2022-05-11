@@ -1,0 +1,144 @@
+				Session Basic
+
+
+
+
+
+---[ Contents
+	1. Session Basic
+	2. HTTP의 특징
+	3. flask에 대한 간단한 소개
+	4. 문제 풀이
+	5. Reference
+
+
+
+
+
+
+
+---[ 1. Session Basic
+ 문제는 다음과 같이 제시된다.[1]
+
+======================================================
+Description
+쿠키와 세션으로 인증 상태를 관리하는 간단한 로그인 서비스입니다.
+admin 계정으로 로그인에 성공하면 플래그를 획득할 수 있습니다.
+
+접속 정보
+Host: host1.dreamhack.games
+Port: 12834/tcp
+nc host1.dreamhack.games 12834
+http://host1.dreamhack.games:12834/
+
+문제파일: app.py
+======================================================
+
+---[ 2. HTTP의 특징
+ HTTP는 connectionless와 stateless라는 특징을 가진다. Connectionless는
+다수의 사용자가 동시에 접속하더라도 실제로 연결된 상태인 사용자를 최소화하는
+것을 말하고, stateless는 요청에 대한 응답이 전송되면 연결을 끊어 사용자의
+이전 state를 알 수 없다는 것을 말한다. 여기서 사용자의 state를 추적하기
+위한 것이 cookie와 session이다. 쿠키는 key와 value로 구성되며 server가
+client에게 발급하면 client는 서비스를 요청할 때 HTTP header에 cookie를
+포함시켜 전송한다. 여기서 cookie는 client의 browser에 저장되므로 변조될
+수 있다. 이러한 이유로 server는 cookie 대신 session으로 사용자의 state를
+추적하게 된다. Session은 server가 생성하는 랜덤한 문자열이고, server에
+저장되며, server가 client에게 전달하면 client가 이를 cookie와 같이
+다루는 방식으로 동작한다.
+
+---[ 3. flask에 대한 간단한 소개
+ Flask는 Python을 기반으로 한 Micro Web Framework로 Web과 관련한
+transaction을 처리할 수 있는 Web Server를 구축할 수 있는 경량의
+도구이다.
+ 먼저 간단한 예제 코드로 좀 더 세부적으로 다루어 보자.
+
+--------
+hello.py
+=============================================================
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/")
+def hello_world():
+	return "<p> Hello, world!! </p>"
+=============================================================
+
+위 코드는 Flask application에서 나타날 수 있는 가장 간략한
+코드이다. 이는 기본적으로 다음과 같은 동작을 수행한다.
+
+=============================================================
+1. 위 코드를 보면 먼저 Flask class를 import한다.
+2. Flask class의 instance를 Flask()를 사용하여 생성한다.
+3. route decorator로 한 URL에 한 함수를 bind한다.
+4. route decorator로 bind된 함수가 반환하는 메시지는
+   default로 HTML type이다. 따라서 그 형식대로 인식되고
+   처리될 것이다.
+=============================================================
+
+ route decorator는 argument로 사용될 HTTP Method의 리스트를
+가질 수 있으며 이는 요청을 처리하는 방식을 달리할 수 있음을
+의미한다. 예를 들어 다음 코드는 사용자의 ID와 Password를
+입력받아서 처리할 때 POST Method를 사용한다.
+
+=============================================================
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route('/login', methods=['POST', 'GET'])
+def login():
+    error = None
+    if request.method == 'POST':
+        if valid_login(request.form['username'],
+                       request.form['password']):
+            return log_the_user_in(request.form['username'])
+        else:
+            error = 'Invalid username/password'
+    # the code below is executed if the request method
+    # was GET or the credentials were invalid
+    return render_template('login.html', error=error)
+=============================================================
+
+여기서 POST와 GET Method에 대해 간략히 다루자면, POST Method는
+데이터를 HTTP Header에 저장하여 전달하고, GET Method는 데이터를
+URL에 명시하여 전달한다. URL에 명시할 때는 '?'를 사용하여
+데이터의 시작을 알리고 각 필드와 값을 써서 데이터를 전달한다.
+ 이미 작성된 HTML 코드를 Flask를 통해서 rendering하기 위해서는
+render_template() Method를 사용하면 된다. 해당 Method에
+template의 이름과 keyword argument로 전달하고자 하는 변수를
+제공하여 사용할 수 있다. 그 예시로 다음 코드를 보자.
+
+=============================================================
+from flask import render_template
+
+@app.route('/hello/')
+@app.route('/hello/<name>')
+def hello(name=None):
+    return render_template('hello.html', name=name)
+=============================================================
+
+Flask는 templates라는 이름의 디렉토리 내에 있는 hello.html이라는
+이름의 파일을 검색하여 브라우저에 표시할 것이다.
+
+---[ 4. 문제풀이
+ 제시된 문제 파일을 읽어보면 다음과 같은 코드가 있다.
+
+======================================================
+...
+
+@app.route('/admin')
+def admin():
+    return session_storage
+...
+======================================================
+
+위 코드는 "[접속 정보]/admin"으로 접속하면 session_storage에 저장된 값을
+출력할 것이라는 의미이다. 즉, 이것으로 admin의 sessioid를 얻을 수 있다.
+그리고 admin의 sessionid를 chrome 개발자 도구를 사용하여 쿠키 값으로 설정하면
+다음 접속에서 서버는 사용자를 admin으로 인식하게 되어 FLAG가 출력된다.
+
+---[ 5 Reference
+[1] Dreamhack, "https://dreamhack.io/wargame/challenges/409/", 티오리한국
+[2] Dreamhack, "https://dreamhack.io/lecture/courses/166", 티오리한국

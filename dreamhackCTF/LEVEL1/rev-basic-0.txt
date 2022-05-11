@@ -1,0 +1,234 @@
+				rev-basic-0
+
+
+
+
+---[ Contents
+     1. rev-basic-0
+     2. 문제 풀이
+     3. References
+
+
+
+
+
+
+
+---[ 1. rev-basic-0
+ [1]은 다음과 같이 문제를 제시한다.
+
+=======================================================
+문제 정보
+Reversing Basic Challenge #0
+이 문제는 사용자에게 문자열 입력을 받아 정해진 방법으로 입력값을 검증하여 correct 또는 wrong을 출력하는 프로그램이 주어집니다.
+
+해당 바이너리를 분석하여 correct를 출력하는 입력값을 찾으세요!
+
+획득한 입력값은 DH{} 포맷에 넣어서 인증해주세요.
+
+예시) 입력 값이 Apple_Banana일 경우 flag는 DH{Apple_Banana}
+
+Reference
+Reverse Engineering Fundamental Roadmap
+
+문제 파일
+chall0.exe
+=======================================================
+
+---[ 2. 문제 풀이
+ [2]는 주어진 파일에서 길이가 4 이상인 출력가능한 문자열을 출력하는 strings 명령어와 사용방법을 설명한다. 이를 주어진 문제 파일에 적용시키면 다음과 같다.
+
+=======================================================
+$ strings chall0.exe
+!This program cannot be run in DOS mode.
+Richc{
+.text
+`.rdata
+@.data
+.pdata
+@.rsrc
+@.reloc
+D$ H
+L$ L
+L$XH
+L$ L
+L$PL
+D$HH
+T$@H
+L$ L
+L$XH
+L$ L
+L$PL
+D$HH
+T$@H
+D$ H
+T$ H
+L$ H
+D$HH
+L$(E3
+T$@H
+D$ H
+D$ H
+L$ H
+D$HH
+D$(3
+L$(E3
+T$@H
+D$ H
+D$ H
+\$@H
+t$HH
+D$8H
+D$8H
+D$@H
+@SVWH
+T$`H
+L$hH
+T$`L
+L$0L
+L$pH
+L$(3
+@_^[
+t!eH
+uxHc
+uTL+
+\$ UH
+M H1E
+ H3E H3E
+\$HH
+L$0L
+L$(H
+L$ 3
+L$PH
+D$PH
+D$@H
+D$H3
+u0HcH<H
+;csm
+\$03
+\$0H
+\$0H
+ntelA
+GenuD
+ineI
+t(=`
+t!=p
+ w$H
+T$ H
+D$ "
+D$ $
+\$(3
+t$0H
+Compar3_the_str1ng
+Input : 
+%256s
+Correct
+Wrong
+RSDS
+C:\Users\user\source\repos\reversing-wargame\x64\Release\chall0.pdb
+GCTL
+.text$mn
+.text$mn$00
+.text$x
+.idata$5
+.00cfg
+.CRT$XCA
+.CRT$XCAA
+.CRT$XCZ
+.CRT$XIA
+.CRT$XIAA
+.CRT$XIAC
+.CRT$XIZ
+.CRT$XPA
+.CRT$XPZ
+.CRT$XTA
+.CRT$XTZ
+.rdata
+.rdata$zzzdbg
+.rtc$IAA
+.rtc$IZZ
+.rtc$TAA
+.rtc$TZZ
+.xdata
+.idata$2
+.idata$3
+.idata$4
+.idata$6
+.data
+.bss
+.pdata
+.rsrc$01
+.rsrc$02
+__C_specific_handler
+__current_exception
+__current_exception_context
+memset
+VCRUNTIME140.dll
+strcmp
+__acrt_iob_func
+puts
+__stdio_common_vfprintf
+__stdio_common_vfscanf
+_seh_filter_exe
+_set_app_type
+__setusermatherr
+_configure_narrow_argv
+_initialize_narrow_environment
+_get_initial_narrow_environment
+_initterm
+_initterm_e
+exit
+_exit
+_set_fmode
+__p___argc
+__p___argv
+_cexit
+_c_exit
+_register_thread_local_exe_atexit_callback
+_configthreadlocale
+_set_new_mode
+__p__commode
+_initialize_onexit_table
+_register_onexit_function
+_crt_atexit
+terminate
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+RtlCaptureContext
+RtlLookupFunctionEntry
+RtlVirtualUnwind
+UnhandledExceptionFilter
+SetUnhandledExceptionFilter
+GetCurrentProcess
+TerminateProcess
+IsProcessorFeaturePresent
+QueryPerformanceCounter
+GetCurrentProcessId
+GetCurrentThreadId
+GetSystemTimeAsFileTime
+InitializeSListHead
+IsDebuggerPresent
+GetModuleHandleW
+KERNEL32.dll
+<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+<assembly xmlns='urn:schemas-microsoft-com:asm.v1' manifestVersion='1.0'>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level='asInvoker' uiAccess='false' />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>
+$
+=======================================================
+
+위 결과를 살펴보면 "Compar3_the_str1ng"이라는 문자열을 확인할 수 있고, 이 문자열이 플래그이다.
+
+---[ 3. References
+[1] Dreamhack, Exercise: rev-basic-0, https://dreamhack.io/lecture/courses/205, 티오리한국, 2019-2022
+[2] Michael Kerrisk et al., strings(1), https://man7.org/linux/man-pages/man1/strings.1.html, Free Software Foundation, Inc., 2021

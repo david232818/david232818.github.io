@@ -1,0 +1,85 @@
+				xss-2
+
+
+
+
+
+---[ Contents
+	1. xss-2
+	2. 문제 풀이
+	3. Reference
+
+
+
+
+
+
+
+---[ 1. xss-2
+ [1]은 다음과 같은 문제를 제시한다.
+
+======================================================
+-[ 문제 정보
+여러 기능과 입력받은 URL을 확인하는 봇이 구현된 서비스입니다.
+XSS 취약점을 이용해 플래그를 획득하세요. 플래그는 flag.txt, FLAG 변수에 있습니다.
+
+-[ Reference
+ClientSide: XSS
+
+-[ 문제 파일
+app.py
+======================================================
+
+---[ 2. 문제 풀이
+ 문제 링크의 /vuln에 접속하면 자동적으로
+"[문제 링크]/vuln?param=<script>alert(1) </script>"가 실행된다. 그러나 화면에는
+아무것도 나타나지 않는다. 즉, alert(1)은 결과적으로 실행되지 않았다. 이는 그
+페이지의 소스를 통해 설명될 수 있다. 다음은 그 페이지 소스의 일부이다.
+
+======================================================
+    <div id='vuln'></div>
+    <script>var x=new URLSearchParams(location.search); document.getElementById('vuln').innerHTML = x.get('param');</script>
+
+    </div> <!-- /container -->
+======================================================
+
+위 코드를 보면 전달된 param이 innerHTML로 처리됨을 알 수 있다.
+따라서 [2, p. 630]에서 언급한 것과 같이 param에 포함된 script 태그는
+실행되지 않는다. 그러므로 script 태그가 아닌 다른 태그로 코드를 실행시켜야만
+한다. 여기에는 여러가지 방법이 있지만 여기서는 img 태그를 사용할 것이다. img
+태그에는 src와 onerror 속성이 있고, src는 이미지의 주소, onerror는 이미지를
+불러오지 못했을 때의 동작을 설정한다. onerror에 javascript 코드가 삽입될 수
+있기 때문에 src의 값을 0으로 설정하여 에러가 발생하도록 만들면, onerror에
+삽입된 javascript 코드가 실행될 것이다.
+
+ 이제 app.py에서 /flag가 수행하는 작업들을 살펴보면 다음과 같다.
+
+======================================================
+1. /flag 페이지에서 /vuln 페이지로 전달할 param을 POST 메소드로 입력 받음
+2. check_xss() 함수에 입력값과 flag를 cookie로 전달하여 호출
+3. check_xss() 함수는 param을 "[문제 링크]/vuln?paran=" 뒤에 인코딩하여
+붙이고, 그 url과 cookie로 전달된 값을 read_url() 함수에 전달하여 호출
+4. read_url() 함수는 전달된 cookie를 추가한 후, 전달된 url에 접속
+======================================================
+
+그리고 /memo는 "?memo=" 뒤에 오는 문자열을 출력하므로 사용자 입력에 쿠키를
+메모 페이지에 출력하는 javascript 코드를 쓴다면 플래그는 메모 페이지에 기록될
+것이다. 이때 상기 서술하였듯이 script 태그가 아닌 태그를 사용해야 하고, 여기서는
+img 태그를 사용할 것이다. 그럼 페이로드는 다음과 같다.
+
+======================================================
+<img src=0 onerror=location.href="/memo?memo="+document.cookie; />
+======================================================
+
+위 코드를 /flag 페이지에 사용자 입력으로 주게되면 good라는 팝업 창이 표시되고
+/memo 페이지로 들어가면 다음과 같이 플래그가 적혀있음을 알 수 있다.
+
+======================================================
+flag=DH{3c01577e9542ec24d68ba0ffb846508f}
+hello
+======================================================
+
+---[ 3. Reference
+[1] Dreamhack, xss-2, https://dreamhack.io/wargame/challenges/268/, 티오리한국
+[2] Ian Hickson et al., HTML5: A vocabulary and associated APIs for HTML
+and XHTML, https://html.spec.whatwg.org/multipage/, W3C

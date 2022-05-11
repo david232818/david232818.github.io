@@ -1,0 +1,246 @@
+				rev-basic-5
+
+
+					Problem AUTHOR: dreamhack
+					Article Author: Kown Young Jung
+
+
+
+---[ Contents
+     1. rev-basic-5
+     2. 문제 풀이
+
+
+
+
+
+1. rev-basic-5
+ 문제는 다음과 같이 제시된다.
+
+======================================================================
+---[ 문제 정보
+이 문제는 사용자에게 문자열 입력을 받아 정해진 방법으로 입력값을 검증하여
+correct 또는 wrong을 출력하는 프로그램이 주어집니다.
+해당 바이너리를 분석하여 correct를 출력하는 입력값을 찾으세요!
+획득한 입력값은 DH{} 포맷에 넣어서 인증해주세요.
+예시) 입력 값이 Apple_Banana일 경우 flag는 DH{Apple_Banana}
+
+---[ 문제 파일
+chall5.exe
+======================================================================
+
+2. 문제 풀이
+ 디버거로 주어진 실행 파일을 분석해보면 입력한 문자열의 0, 1번째 문자를 더하여
+비교 문자열의 첫 번째 문자를 생성해내고 이것이 계속 차례로 진행됨을 알 수 있다.
+여기서 입력 문자의 열을 b, 비교 문자의 열을 a라고 하고 a_n, b_n을 각각 a와
+b의 n번째 원소라고 하면 다음이 성립한다.
+
+======================================================================
+a_n = b_n + b_(n + 1) (n >= 0, n은 정수)
+======================================================================
+
+위 식에서 b_n을 이항하여 다음과 같이 쓸 수 있다.
+
+======================================================================
+b_(n + 1) = a_n - b_n (n >= 0, n은 정수)
+======================================================================
+
+이때, a는 주어져 있으므로 b의 첫항을 결정할 수 있다면 위 식을 사용하여 b의
+모든 원소를 얻을 수 있다. 이는 다음과 같은 코드로 구현될 수 있다.
+
+---------
+exploit.c
+======================================================================
+#include <stdio.h>
+
+void printseq(int *seq, int len)
+{
+        int i;
+
+        for (i = 0; i < len; i++)
+                printf("%c", seq[i]);
+        printf("\n");
+}
+
+int main()
+{
+        int a[] = {
+                0xad, 0xd8, 0xcb, 0xcb,
+                0x9d, 0x97, 0xcb, 0xc4,
+                0x92, 0xa1, 0xd2, 0xd7,
+                0xd2, 0xd6, 0xa8, 0xa5,
+                0xdc, 0xc7, 0xad, 0xa3,
+                0xa1, 0x98, 0x4c, 0x00
+        };
+        int b[25];
+        int i, j, useless;
+
+        for (i = 0; i < 25; i++)
+                b[i] = 0x00;
+        for (i = 0; i < 128; i++) {
+                b[0] = i;
+                for (j = 1; j < 25; j++)
+                        b[j] = a[j - 1] - b[j - 1];
+                printseq(b, 25);
+        }
+        return 0;
+}
+======================================================================
+
+위 코드를 컴파일하고 실행하면 다음과 같은 결과를 마주하게 된다.
+
+======================================================================
+�+�+r%�t-�2�6r3���
+                  A�
+�,�,q&�s.�3�7q4���
+                  @�
+?��-p'� r/�4�8p5� ��
+�.�.o(�!q0�5�9o6�!��>�
+�/�/n)�"p1�6�:n7�"��=�
+�0�0m*�#o2�7�;m8�#��<�
+�1�1l+�$n3�8�<l9�$��;�
+�2�2k,�%m4�9�=k:�%�:�
+�3�3j-�&l5�:�>j;�&��9�
+        �4�4i.�'k6�;�?i<�'��8�
+
+�5�5h/�(j7�<�@h=�(��7�
+
+�6�6g0�)i8�=�Ag>�)��6�
+
+�7�7f1�*h9�>�Bf?�*� �5�
+�8�8e2�+g:�?�Ce@�+�!�4�
+�9�9d3�,f;�@�DdA�,�"3�
+�:�:c4�-e<�A�EcB�-�#~2�
+�;�;b5�.d=�B�FbC�.$}�
+�<�<a6�/c>�C�GaD�/~%|0�
+�=�=`7�0b?�D�H`E�0}&{/�
+�>�>_8�1a@�E�I_F�1|'z.�
+�?�?^9�2`A�F�J^G�2{(y-�
+�@�@]:�3_B�G�K]H�3z)x ,�
+�A�A\;�4^C�H�L\I�4y*w!+�
+�B�B[<�5]D�I�M[J�5x+v"*�
+�C�CZ=�6\E�J�NZK�6w,u#)�
+�D�DY>�7[F�K�OYL�7v-t$(�
+�E�EX?�8ZG�L�PXM�8u.s%'�
+F�FW@�9YH�M�QWN�9t/r&&�
+�G�GVA�:XI�N�RVO�:s0q'%�
+�H�HUB�;WJ�O�SUP�;r1p($�
+�I�ITC�<VK�P�TTQ�<q2o)#�
+�J�JSD�=UL�Q�USR�=p3n*"�
+ �K�KRE�>TM�R�VRS�>o4m+!�
+!�LLQF�?SN�SWQT�?n5l, �
+"�M~MPG�@RO�T~XPU�@m6k-�
+#�N}NOH�AQP�U}YOV�Al7j.�
+$�O|ONI�BPQ�V|ZNW�Bk8i/�
+%�P{PMJ�COR�W{[MX�Cj9h0�
+&�QzQLK�DNSXz\LY�Di:g1
+'�RyRKLEMT~Yy]KZ�Eh;f2�
+(�SxSJM~FLU}Zx^J[�Fg<e3�
+)�TwTIN}GKV|[w_I\�Gf=d4�
+*�UvUHO|HJW{\v`H]He>c5�
++�VuVGP{IIXz]uaG^~Id?b6�
+,�WtWFQzJHYy^tbF_}Jc@a7�
+-�XsXERyKGZx_scE`|KbA`8�
+.YrYDSxLF[w`rdDa{LaB_9�
+/~ZqZCTwME\vaqeCbzM`C^:�
+0}[p[BUvND]ubpfBcyN_D];�
+1|\o\AVuOC^tcogAdxO^E\<�
+2{]n]@WtPB_sdnh@ewP]F[=�
+3z^m^?XsQA`remi?fvQ\GZ>�
+�y_l_>YrR@aqflj>guR[HY?
+5x`k`=ZqS?bpgkk=htSZIX@
+                       �
+6waja<[pT>cohjl<isTYJWA
+                       �
+7vbib;\oU=dniim;jrUXKVB
+�
+8uchc:]nV<emjhn:kqVWLUC �
+9tdgd9^mW;flkgo9lpWVMT�
+:sefe8_lX:gklfp8moXUNSE�
+;rfef7`kY9hjmeq7nnYTORF�
+<qgdg6ajZ8iindr6omZSPQG�
+=phch5bi[7jhocs5pl[RQPH�
+>oibi4ch\6kgpbt4qk\QROI�
+?njaj3dg]5lfqau3rj]PSNJ�
+@mk`k2ef^4mer`v2si^OTMK�
+All_l1fe_3nds_w1th_NULL
+Bkm^m0gd`2oct^x0ug`MVKM�
+Cjn]n/hca1pbu]y/vfaLWJN�
+Dio\o.ibb0qav\z.webKXIO�
+Ehp[p-jac/r`w[{-xdcJYHP�
+FgqZq,k`d.s_xZ|,ycdIZGQ�
+GfrYr+l_e-t^yY}+zbeH[FR�
+HesXs*m^f,u]zX~*{afG\ES�
+IdtWt)n]g+v\{W)|`gF]DT�
+JcuVu(o\h*w[|V�(}_hE^CU�
+KbvUv'p[i)xZ}U�'~^iD_BV�
+
+LawTw&qZj(yY~T�&]jC`AW�
+
+M`xSx%rYk'zXS�%�\kBa@X�
+
+N_yRy$sXl&{W�R�$�[lAb?Y�
+O^zQz#tWm%|V�Q�#�Zm@c>Z�
+P]{P{"uVn$}U�P�"�Yn?d=[�
+Q\|O|!vUo#~T�O�!�Xo>e<\�
+R[}N} wTp"S�N� �Wp=f;]�
+SZ~M~xSq!�R�M��Vq<g:^�
+TYLyRr �Q�L��Ur;h9_�
+UX�K�zQs�P�K��Ts:i8`�
+VW�J�{Pt�O�J��St9j7a�
+WV�I��N�I�Ru8k6b�
+XU�H�}Nv�M�H��Qv7l5c�
+YT�G�~MwL�G��Pw6m4d�
+ZS�F�Lx�K�F��Ox5n3e�
+[R�E��Ky�J�E��Ny4o2f�
+\Q�D��Jz�I�D��Mz3p1g�
+                     ]P�C��I{�H�C��L{2q0h�
+^O�B��H|�G�B��K|1r/i�
+_N�A��G}�F�A��J}0s.j�
+`M�@��F~�E�@��I~/t-k�
+aL�?��E�D�?��H.u,l�
+bK�>��D��C�>��G�-v+m�!
+cJ�=��C��B�=��F�,w*n�"
+dI�<��B��A�<��E�+x)o�#
+�D�*y(p�$
+fG�:�
+     �@��?�:�
+             �C�)z'q�%
+gF�9�
+�>�9��?�
+     �B�({&r�&
+hE�8�
+�>�
+   �=�8�
+�A�'|%s�'
+iD�7�   �=�
+           �<�7�        �@�&}$t�(
+jC�6�<�
+�;�6�?�%~#u�)
+kB�5��;�        �:�5��>�$"v�*
+lA�4��:�9�4��=�#�!w�+
+m@�3��9��8�3��<�"� x�,
+n?�2��8��7�2��;�!�y�-
+o>�1��7��6�1��:� �z�.
+p=�0��6��5�0��9��{�/
+q<�/��5��4�/��8��|�0
+r;�.��4��3�.��7��1
+s:�-���3��2�-���6��~�2
+t9�,���2��1�,���5��3
+u8�+���1���0�+���4����4
+v7�*���0���/�*���3����5
+w6�)���/���.�)���2����6
+x5�(���.���-�(���1����7
+y4�'���-���,�'���0����8
+z3�&���,���+�&���/����9
+{2�%���+���*�%���.����:
+|1�$���*���)�$���-����;
+}0�#���)���(�#���,����<
+~/�"���(���'�"���+����=
+.�!��'���&�!��*����>
+======================================================================
+
+우리가 원하는 것은 FLAG이며 이는 반드시 입력 가능한 문자로 구성되어 있음을
+생각해보면 위 결과에서 마름모와 ?를 합친 문자를 포함하는 열은 신경쓸 필요가
+없음을 알 수 있다. 그럼 4개 정도로 후보군이 추려진다. 그리고 여기서 선택하면
+된다.

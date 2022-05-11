@@ -1,0 +1,769 @@
+			rev-basic-9
+
+
+				Problem AUTHOR: dremahack
+				Article Author: Kown Young Jung
+
+
+
+---[ Contents
+     1. rev-basic-9
+     2. 문제 풀이
+
+
+
+
+
+1. rev-basic-9
+ 문제는 다음과 같이 제시된다.
+
+======================================================================
+--[ 문제 정보
+Reversing Basic Challenge #9
+
+이 문제는 사용자에게 문자열 입력을 받아 정해진 방법으로 입력값을 검증하여
+correct 또는 wrong을 출력하는 프로그램이 주어집니다.
+
+해당 바이너리를 분석하여 correct를 출력하는 입력값을 찾으세요!
+
+획득한 입력값은 DH{} 포맷에 넣어서 인증해주세요.
+
+예시) 입력 값이 Apple_Banana일 경우 flag는 DH{Apple_Banana}
+
+--[ 문제 파일
+chall9.exe
+======================================================================
+
+위에서 제시된 문제 파일을 분석해보면 다음 C 코드와 사실상 동일한 동작을 한다는
+것을 알 수 있다.
+
+======================================================================
+#include <stdio.h>
+#include <string.h>
+
+#define SETBIT(n)       (~(~0 << (n)))
+#define LEN             (24)
+
+unsigned int ror_8(unsigned int x, unsigned int n)
+{
+        unsigned int tmp;
+
+        x &= SETBIT(8);
+        tmp = x & SETBIT(n);
+        x >>= n;
+        tmp <<= (8 - n);
+        x |= tmp;
+        return x;
+}
+
+void makek(unsigned char *s, unsigned char *key, unsigned char *_64020)
+{
+        unsigned int i, j, k, idx, res, z;
+        unsigned char *sp;
+
+        for (i = 0; i < 0x10; i++) {
+                printf("Round%d\t\t", i + 1);
+                for (j = 0; j < 0x08; j++) {
+                        idx = s[j] ^ key[j];
+                        res = _64020[idx];
+                        k = (j + 1) & 7;
+                        sp = s + k;
+                        res = ror_8(*sp + res, 5);
+                        *sp = res;
+                }
+                printf("final result\t");
+                for (z = 0; z < 0x08; z++)
+                        printf("%02x ", s[z]);
+                printf("\n");
+        }
+}
+
+int main()
+{
+        unsigned char _64020[] = {
+                0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5,
+                0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
+                0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0,
+                0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
+                0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC,
+                0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
+                0x04, 0xC7, 0x23, 0xC3, 0x18, 0x96, 0x05, 0x9A,
+                0x07, 0x12, 0x80, 0xE2, 0xEB, 0x27, 0xB2, 0x75,
+                0x09, 0x83, 0x2C, 0x1A, 0x1B, 0x6E, 0x5A, 0xA0,
+                0x52, 0x3B, 0xD6, 0xB3, 0x29, 0xE3, 0x2F, 0x84,
+                0x53, 0xD1, 0x00, 0xED, 0x20, 0xFC, 0xB1, 0x5B,
+                0x6A, 0xCB, 0xBE, 0x39, 0x4A, 0x4C, 0x58, 0xCF,
+                0xD0, 0xEF, 0xAA, 0xFB, 0x43, 0x4D, 0x33, 0x85,
+                0x45, 0xF9, 0x02, 0x7F, 0x50, 0x3C, 0x9F, 0xA8,
+                0x51, 0xA3, 0x40, 0x8F, 0x92, 0x9D, 0x38, 0xF5,
+                0xBC, 0xB6, 0xDA, 0x21, 0x10, 0xFF, 0xF3, 0xD2,
+                0xCD, 0x0C, 0x13, 0xEC, 0x5F, 0x97, 0x44, 0x17,
+                0xC4, 0xA7, 0x7E, 0x3D, 0x64, 0x5D, 0x19, 0x73,
+                0x60, 0x81, 0x4F, 0xDC, 0x22, 0x2A, 0x90, 0x88,
+                0x46, 0xEE, 0xB8, 0x14, 0xDE, 0x5E, 0x0B, 0xDB,
+                0xE0, 0x32, 0x3A, 0x0A, 0x49, 0x06, 0x24, 0x5C,
+                0xC2, 0xD3, 0xAC, 0x62, 0x91, 0x95, 0xE4, 0x79,
+                0xE7, 0xC8, 0x37, 0x6D, 0x8D, 0xD5, 0x4E, 0xA9,
+                0x6C, 0x56, 0xF4, 0xEA, 0x65, 0x7A, 0xAE, 0x08,
+                0xBA, 0x78, 0x25, 0x2E, 0x1C, 0xA6, 0xB4, 0xC6,
+                0xE8, 0xDD, 0x74, 0x1F, 0x4B, 0xBD, 0x8B, 0x8A,
+                0x70, 0x3E, 0xB5, 0x66, 0x48, 0x03, 0xF6, 0x0E,
+                0x61, 0x35, 0x57, 0xB9, 0x86, 0xC1, 0x1D, 0x9E,
+                0xE1, 0xF8, 0x98, 0x11, 0x69, 0xD9, 0x8E, 0x94,
+                0x9B, 0x1E, 0x87, 0xE9, 0xCE, 0x55, 0x28, 0xDF,
+                0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68,
+                0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16,
+                0x58, 0x25, 0x7A, 0xE7, 0x05, 0x30, 0xFF, 0xFF,
+                0xA7, 0xDA, 0x85, 0x18, 0xFA, 0xCF, 0x00, 0x00,
+                0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x00, 0x00,
+                0x05, 0x00, 0x00, 0x00, 0x2E, 0x00, 0x00, 0x00,
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0x00, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        };
+	 unsigned char *key = "I_am_KEY";
+        unsigned char s[] = {
+                0x7e, 0x7d, 0x9a, 0x8b,
+                0x25, 0x2d, 0xd5, 0x3d,
+                0x03, 0x2b, 0x38, 0x98,
+                0x27, 0x9f, 0x4f, 0xbc,
+                0x2a, 0x79, 0x00, 0x7d,
+                0xc4, 0x2a, 0x4f, 0x58
+        };
+        unsigned int i, j;
+
+	for (i = 0; i < LEN; i += 8) {
+                makek(s + i, key, _64020);
+                for (j = 0; j < LEN; j++)
+                        printf("%02x ", s[j]);
+                printf("\n");
+        }
+	return 0;
+}
+======================================================================
+
+이제 해야할 것은 makek() 함수의 동작에 대한 역을 통해 출력된 바이트열을 입력
+문자열로 바꾸는 것이다.
+
+2. 문제 풀이
+ 1.에서 얻은 makek() 함수의 동작은
+
+======================================================================
+idx = s[j] ^ key[j];
+res = _64020[idx];
+k = (j + 1) & 7;
+sp = s + k;
+res = ror_8(*sp + res, 5);
+*sp = res;
+======================================================================
+
+을 0x10번 반복하는 것이고 최종 문자열은 입력 문자열을 0x08개의 문자열마다
+끊어서 makek() 함수를 적용한 것이다.
+ 그럼 위 처리 과정을 역으로 풀어보자. 먼저 res는 *sp + res를 5만큼
+right rotation shift한 것이므로 res에 5만큼 left rotation shift를 하면
+*sp + res를 얻을 수 있을 것이다. 그러나 right rotation을 수행할 때 8 비트만
+취하기 때문에 그보다 상위인 비트의 값은 알 수 없다. 하지만 0x100이 존재할 수도
+있다는 가능성은 열어두어야만 한다. 여기서의 목적은 *sp를 구하는 것이므로
+_64020[idx]의 값을 알아야 한다. 역의 시점에서 s[j], key[j]는 알려져 있으므로
+idx를 구할 수 있고 이것으로 _64020[idx]를 취하는 것이 가능해진다. 물론,
+k = (j + 1) & 7에 의해 역의 시점에서의 j는 *sp 이전의 값에 해당하는
+인덱스이다. 따라서 j는 다음 수열을 반복해야 한다.
+
+	    0, 7, 6, 5, 4, 3, 2, 1
+
+이렇게 구해진 _64020[idx] 값을 left rotation의 결과에서 빼면 *sp를
+구할 수 있다. 그러나 이 값이 음수라면 0x100이 존재했을 가능성이 있으므로
+0x100을 붙여서 빼주어야 할 것이다. 이를 기억하며 C 코드로 구현하면 다음과
+같다.
+
+======================================================================
+#define SETBIT(n)       (~(~0 << (n)))
+
+unsigned int lol_8(unsigned int x, unsigned int n)
+{
+        unsigned int tmp;
+
+        x &= SETBIT(8);
+        tmp = x >> (8 - n);
+        x <<= n;
+        x |= tmp;
+        x &= SETBIT(8);
+        return x;
+}
+
+void exploit(unsigned char *s,
+     		      unsigned char *key,
+		      unsigned char *_64020)
+{
+	unsigned int i, j, res, lkres, z;
+	unsigned char *r, idx;
+
+	r = s;
+	for (i = 0; i < 0x08; i++) {
+	       	idx = (0x08 - i) & 7;
+		res = lol_8(*(r + idx), 5);
+		idx = (0x08 - (i + 1)) & 7;
+		lkres = _64020[key[idx] ^ (*(r + idx))];
+		idx = (0x08 - i) & 7;
+		if (lkres > res)
+		   	*(r + idx) = (res | 0x100) - lkres;
+		else
+			*(r + idx) = res - lkres;
+	}
+}
+======================================================================
+
+이를 0x10번으로 확장시키고 해당 함수를 0x08씩 끊어서 호출하도록 만들면
+역연산이 완성된다. 여기서 문제 파일에서 제시된 최종 문자열의 길이가 24이므로
+그에 맞춰주면 될 것이다.
+
+---------
+exploit.c
+======================================================================
+#include <stdio.h>
+#include <string.h>
+
+#define SETBIT(n)       (~(~0 << (n)))
+#define LEN             (24)
+
+unsigned int lol_8(unsigned int x, unsigned int n)
+{
+        unsigned int tmp;
+
+        x &= SETBIT(8);
+        tmp = x >> (8 - n);
+        x <<= n;
+        x |= tmp;
+        x &= SETBIT(8);
+        return x;
+}
+
+void exploit(unsigned char *s, unsigned char *key, unsigned char *_64020)
+{
+        unsigned int i, j, res, lkres, z;
+        unsigned char *r, idx;
+
+        r = s;
+        for (j = 0; j < 0x10; j++) {
+                for (i = 0; i < 0x08; i++) {
+                        idx = (0x08 - i) & 7;
+                        res = lol_8(*(r + idx), 5);
+                        idx = (0x08 - (i + 1)) & 7;
+                        lkres = _64020[key[idx] ^ (*(r + idx))];
+                        printf("res: %x, lkres: %x\n", res, lkres);
+                        idx = (0x08 - i) & 7;
+                        if (lkres > res)
+                                *(r + idx) = (res | 0x100) - lkres;
+                        else
+                                *(r + idx ) = res - lkres;
+                }
+                printf("final result\t");
+                for (z = 0; z < 0x08; z++)
+                        printf("%02x ", s[z]);
+                printf("\n");
+        }
+}
+
+int main()
+{
+        unsigned char _64020[] = {
+                0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5,
+                0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
+                0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0,
+                0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
+                0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC,
+                0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
+                0x04, 0xC7, 0x23, 0xC3, 0x18, 0x96, 0x05, 0x9A,
+                0x07, 0x12, 0x80, 0xE2, 0xEB, 0x27, 0xB2, 0x75,
+                0x09, 0x83, 0x2C, 0x1A, 0x1B, 0x6E, 0x5A, 0xA0,
+                0x52, 0x3B, 0xD6, 0xB3, 0x29, 0xE3, 0x2F, 0x84,
+                0x53, 0xD1, 0x00, 0xED, 0x20, 0xFC, 0xB1, 0x5B,
+                0x6A, 0xCB, 0xBE, 0x39, 0x4A, 0x4C, 0x58, 0xCF,
+                0xD0, 0xEF, 0xAA, 0xFB, 0x43, 0x4D, 0x33, 0x85,
+                0x45, 0xF9, 0x02, 0x7F, 0x50, 0x3C, 0x9F, 0xA8,
+                0x51, 0xA3, 0x40, 0x8F, 0x92, 0x9D, 0x38, 0xF5,
+                0xBC, 0xB6, 0xDA, 0x21, 0x10, 0xFF, 0xF3, 0xD2,
+                0xCD, 0x0C, 0x13, 0xEC, 0x5F, 0x97, 0x44, 0x17,
+                0xC4, 0xA7, 0x7E, 0x3D, 0x64, 0x5D, 0x19, 0x73,
+                0x60, 0x81, 0x4F, 0xDC, 0x22, 0x2A, 0x90, 0x88,
+                0x46, 0xEE, 0xB8, 0x14, 0xDE, 0x5E, 0x0B, 0xDB,
+                0xE0, 0x32, 0x3A, 0x0A, 0x49, 0x06, 0x24, 0x5C,
+                0xC2, 0xD3, 0xAC, 0x62, 0x91, 0x95, 0xE4, 0x79,
+                0xE7, 0xC8, 0x37, 0x6D, 0x8D, 0xD5, 0x4E, 0xA9,
+                0x6C, 0x56, 0xF4, 0xEA, 0x65, 0x7A, 0xAE, 0x08,
+                0xBA, 0x78, 0x25, 0x2E, 0x1C, 0xA6, 0xB4, 0xC6,
+                0xE8, 0xDD, 0x74, 0x1F, 0x4B, 0xBD, 0x8B, 0x8A,
+                0x70, 0x3E, 0xB5, 0x66, 0x48, 0x03, 0xF6, 0x0E,
+                0x61, 0x35, 0x57, 0xB9, 0x86, 0xC1, 0x1D, 0x9E,
+                0xE1, 0xF8, 0x98, 0x11, 0x69, 0xD9, 0x8E, 0x94,
+                0x9B, 0x1E, 0x87, 0xE9, 0xCE, 0x55, 0x28, 0xDF,
+                0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68,
+                0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16,
+                0x58, 0x25, 0x7A, 0xE7, 0x05, 0x30, 0xFF, 0xFF,
+                0xA7, 0xDA, 0x85, 0x18, 0xFA, 0xCF, 0x00, 0x00,
+                0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x00, 0x00, 0x00,
+                0x05, 0x00, 0x00, 0x00, 0x2E, 0x00, 0x00, 0x00,
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0x00, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        };
+	 unsigned char *key = "I_am_KEY";
+        unsigned char s[] = {
+                0x7e, 0x7d, 0x9a, 0x8b,
+                0x25, 0x2d, 0xd5, 0x3d,
+                0x03, 0x2b, 0x38, 0x98,
+                0x27, 0x9f, 0x4f, 0xbc,
+                0x2a, 0x79, 0x00, 0x7d,
+                0xc4, 0x2a, 0x4f, 0x58
+        };
+        unsigned int i, j;
+
+        exploit(s, key, _64020);
+        exploit(s + 8, key, _64020);
+        exploit(s + 16, key, _64020);
+        for (i = 0; i < LEN; i++)
+                printf("%02x ", s[i]);
+        printf("\n");
+        printf("%s\n", s);
+        return 0;
+}
+======================================================================
+
+위 코드를 컴파일하고 실행시키면 다음과 같은 결과를 확인할 수 있다.
+
+======================================================================
+$ gcc exploit.c && ./a.out
+res: cf, lkres: 43
+res: a7, lkres: 60
+res: ba, lkres: 33
+res: a5, lkres: da
+res: a4, lkres: 8e
+res: 71, lkres: f
+res: 53, lkres: 93
+res: af, lkres: a6
+final result    8c 09 c0 62 16 cb 87 47
+res: 91, lkres: 72
+res: e8, lkres: 25
+res: f0, lkres: cd
+res: 79, lkres: 3b
+res: c2, lkres: 76
+res: 4c, lkres: 32
+res: 18, lkres: b1
+res: 21, lkres: b1
+final result    1f 70 67 1a 4c 3e 23 c3
+res: e3, lkres: b8
+res: 78, lkres: 33
+res: 64, lkres: 9d
+res: c7, lkres: 7d
+res: 89, lkres: f5
+res: 43, lkres: 6f
+res: ec, lkres: 15
+res: e, lkres: aa
+final result    2b 64 d7 d4 94 4a c7 45
+res: 65, lkres: 9c
+res: a8, lkres: 13
+res: f8, lkres: 7c
+res: 49, lkres: 1f
+res: 92, lkres: 56
+res: 9a, lkres: 4e
+res: fa, lkres: e2
+res: 8c, lkres: cd
+final result    c9 bf 18 4c 3c 2a 7c 95
+res: 39, lkres: 4b
+res: b2, lkres: 12
+res: 8f, lkres: ef
+res: 45, lkres: fb
+res: 87, lkres: fd
+res: 89, lkres: b6
+res: 3, lkres: e1
+res: f7, lkres: 5c
+final result    ee 9b 22 d3 8a 4a a0 a0
+res: dd, lkres: 99
+res: 14, lkres: d9
+res: 14, lkres: 7c
+res: 49, lkres: 3
+res: 51, lkres: ae
+res: 7a, lkres: 1a
+res: 44, lkres: 1c
+res: 73, lkres: d7
+final result    44 9c 28 60 a3 46 98 3b
+res: 88, lkres: aa
+res: 67, lkres: c1
+res: 13, lkres: d7
+res: c8, lkres: b0
+res: 74, lkres: d7
+res: c, lkres: 3b
+res: 5, lkres: 2e
+res: 93, lkres: 88
+final result    de 0b d7 d1 9d 18 3c a6
+res: db, lkres: 16
+res: d4, lkres: b6
+res: 87, lkres: ed
+res: 3, lkres: 25
+res: b3, lkres: 65
+res: 3a, lkres: 4e
+res: fa, lkres: 20
+res: 61, lkres: 64
+final result    c5 fd da ec 4e de 9a 1e
+res: b8, lkres: a0
+res: c3, lkres: 9e
+res: 53, lkres: 2a
+res: db, lkres: 82
+res: c9, lkres: c
+res: 9d, lkres: ea
+res: 5b, lkres: 3a
+res: bf, lkres: d1
+final result    18 ee 21 b3 bd 59 29 25
+res: 3, lkres: 10
+res: a4, lkres: 50
+res: 25, lkres: c9
+res: 2b, lkres: 98
+res: b7, lkres: 1d
+res: 76, lkres: 9
+res: 24, lkres: c8
+res: dd, lkres: f4
+final result    f3 e9 5c 6d 9a 93 5c 54
+res: 7e, lkres: d7
+res: 8a, lkres: d4
+res: 8b, lkres: 61
+res: 72, lkres: a6
+res: 53, lkres: 63
+res: ad, lkres: 27
+res: 8b, lkres: 4e
+res: 3d, lkres: 28
+final result    a7 15 3d 86 f0 cc 2a b6
+res: f4, lkres: df
+res: d6, lkres: a8
+res: 45, lkres: 17
+res: 99, lkres: 79
+res: 1e, lkres: e9
+res: d0, lkres: 4a
+res: a7, lkres: d6
+res: a2, lkres: 4a
+final result    15 58 d1 86 35 20 2e 2e
+res: a2, lkres: f5
+res: c5, lkres: 7f
+res: c5, lkres: 7f
+res: 4, lkres: 2
+res: a6, lkres: e9
+res: d0, lkres: e7
+res: 3a, lkres: c5
+res: b, lkres: 69
+final result    ad a2 75 e9 bd 02 46 46
+res: b5, lkres: c0
+res: c8, lkres: 7b
+res: c8, lkres: 3b
+res: 40, lkres: 98
+res: b7, lkres: 5f
+res: 3d, lkres: fa
+res: ae, lkres: 54
+res: 54, lkres: 65
+final result    f5 ef 5a 43 58 a8 8d 4d
+res: be, lkres: fa
+res: a9, lkres: e8
+res: b1, lkres: 11
+res: 15, lkres: c5
+res: b, lkres: 31
+res: 68, lkres: e2
+res: 4b, lkres: e7
+res: fd, lkres: 5d
+final result    c4 a0 64 86 da 50 a0 c1
+res: 98, lkres: 46
+res: 38, lkres: d9
+res: 14, lkres: af
+res: a, lkres: 97
+res: 5b, lkres: e9
+res: d0, lkres: 6b
+res: 8c, lkres: 16
+res: 14, lkres: af
+final result    52 65 76 65 72 73 65 5f
+res: 60, lkres: d9
+res: 97, lkres: 67
+res: e9, lkres: 48
+res: f3, lkres: bc
+res: e4, lkres: e6
+res: 13, lkres: cb
+res: 7, lkres: 92
+res: 65, lkres: 8b
+final result    87 da 75 48 fe 37 a1 30
+res: f0, lkres: f9
+res: 6, lkres: 69
+res: 34, lkres: 10
+res: e6, lkres: 32
+res: df, lkres: 3f
+res: 9, lkres: fa
+res: ae, lkres: 97
+res: 5b, lkres: ae
+final result    f7 ad 17 0f a0 b4 24 9d
+res: fe, lkres: 1c
+res: b3, lkres: ef
+res: 84, lkres: 16
+res: 96, lkres: 16
+res: 14, lkres: aa
+res: e1, lkres: 38
+res: e2, lkres: 89
+res: b5, lkres: 62
+final result    e2 53 59 a9 6a 80 6e c4
+res: 5c, lkres: 5e
+res: 98, lkres: f1
+res: cd, lkres: 1f
+res: 10, lkres: 96
+res: 4d, lkres: 1c
+res: 35, lkres: 7
+res: 2b, lkres: fe
+res: 6a, lkres: a9
+final result    fe c1 2d 2e 31 7a ae a7
+res: df, lkres: bb
+res: f4, lkres: e9
+res: d5, lkres: c7
+res: 4f, lkres: 9f
+res: 26, lkres: 1a
+res: c5, lkres: 29
+res: a5, lkres: b
+res: 38, lkres: 3c
+final result    24 fc 9a 9c 0c b0 0e 0b
+res: 84, lkres: 0
+res: 61, lkres: b3
+res: c1, lkres: f
+res: 16, lkres: ed
+res: 81, lkres: a1
+res: 93, lkres: f
+res: 53, lkres: a
+res: 9f, lkres: bd
+final result    84 e2 49 84 e0 29 b2 ae
+res: 90, lkres: 68
+res: d5, lkres: 68
+res: 56, lkres: aa
+res: 25, lkres: 8
+res: 1c, lkres: 1e
+res: 90, lkres: 34
+res: 29, lkres: 7a
+res: 5c, lkres: ef
+final result    28 6d af 5c fe 1d ac 6d
+res: 5, lkres: 18
+res: ad, lkres: 1e
+res: 95, lkres: b1
+res: a3, lkres: 32
+res: df, lkres: c7
+res: 8b, lkres: 8b
+res: f5, lkres: 23
+res: ad, lkres: 49
+final result    ed 64 d2 00 18 71 e4 8f
+res: bd, lkres: f6
+res: f1, lkres: 32
+res: 9c, lkres: 80
+res: 2e, lkres: a0
+res: 3, lkres: 3c
+res: 0, lkres: 6d
+res: 5a, lkres: e2
+res: 8c, lkres: 19
+final result    c7 73 78 93 c7 8e 1c bf
+res: f8, lkres: 8e
+res: f7, lkres: cb
+res: 83, lkres: a6
+res: d1, lkres: 46
+res: f8, lkres: bb
+res: 72, lkres: d4
+res: f, lkres: 71
+res: 6e, lkres: 26
+final result    6a 48 9e 9e 3d 8b dd 2c
+res: 4d, lkres: 9d
+res: 85, lkres: 46
+res: bb, lkres: ba
+res: 71, lkres: aa
+res: a7, lkres: d
+res: d3, lkres: 16
+res: d3, lkres: f0
+res: 9, lkres: 99
+final result    b0 70 e3 bd 9a c7 01 3f
+res: 16, lkres: 33
+res: e7, lkres: 1b
+res: 20, lkres: 64
+res: f8, lkres: a6
+res: 53, lkres: 70
+res: b7, lkres: 13
+res: 7c, lkres: 15
+res: e, lkres: ac
+final result    e3 62 67 a4 e3 52 bc cc
+res: 7c, lkres: 2a
+res: 99, lkres: 99
+res: 97, lkres: d4
+res: 4a, lkres: 65
+res: 7c, lkres: dd
+res: 94, lkres: 6f
+res: ec, lkres: 27
+res: 4c, lkres: af
+final result    52 9d c5 25 9f e5 c3 00
+res: 4a, lkres: cb
+res: 0, lkres: 44
+res: 78, lkres: e4
+res: bc, lkres: ba
+res: f3, lkres: 52
+res: a4, lkres: 49
+res: b8, lkres: 25
+res: b3, lkres: 5
+final result    7f ae 93 5b a1 02 94 bc
+res: ef, lkres: d9
+res: 97, lkres: 3e
+res: 92, lkres: 3b
+res: 40, lkres: bb
+res: 34, lkres: 5
+res: 6b, lkres: 89
+res: 72, lkres: a1
+res: d5, lkres: cf
+final result    16 06 d1 e2 2f 85 57 59
+res: c2, lkres: 63
+res: 2b, lkres: c9
+res: ea, lkres: 8b
+res: b0, lkres: 51
+res: e5, lkres: 73
+res: 5c, lkres: e7
+res: 3a, lkres: cb
+res: c0, lkres: 47
+final result    5f 79 6f 75 72 5f 5f 62
+res: 45, lkres: 7c
+res: b, lkres: 67
+res: e9, lkres: ef
+res: 45, lkres: 14
+res: 98, lkres: ca
+res: af, lkres: ef
+res: 0, lkres: f7
+res: 2f, lkres: cd
+final result    c9 62 09 c0 ce 31 fa a4
+res: 39, lkres: 54
+res: 94, lkres: 8
+res: 5f, lkres: da
+res: 26, lkres: 81
+res: d9, lkres: 95
+res: 18, lkres: 45
+res: 21, lkres: 27
+res: 4c, lkres: 91
+final result    e5 bb fa d3 44 a5 85 8c
+res: bc, lkres: 3
+res: 91, lkres: ba
+res: b0, lkres: 28
+res: b4, lkres: af
+res: 88, lkres: ae
+res: 7a, lkres: 14
+res: 5f, lkres: 69
+res: 77, lkres: 8c
+final result    b9 eb f6 66 da 05 88 d7
+res: 37, lkres: 19
+res: fa, lkres: bd
+res: 11, lkres: 2f
+res: a0, lkres: 97
+res: 5b, lkres: 2b
+res: cc, lkres: 88
+res: de, lkres: 8d
+res: 7d, lkres: 5b
+final result    1e 22 51 44 30 09 e2 3d
+res: c3, lkres: 43
+res: a7, lkres: 5c
+res: 5c, lkres: 2c
+res: 21, lkres: a8
+res: 6, lkres: a5
+res: 88, lkres: 4
+res: 2a, lkres: ff
+res: 44, lkres: dd
+final result    80 67 2b 84 61 79 30 4b
+res: 10, lkres: c9
+res: 69, lkres: 9d
+res: 6, lkres: 23
+res: 2f, lkres: b2
+res: 2c, lkres: 1e
+res: 90, lkres: d6
+res: 65, lkres: 7
+res: ec, lkres: ab
+final result    47 41 5e ba 0e 7d e3 cc
+res: e8, lkres: 2a
+res: 99, lkres: 24
+res: 7c, lkres: 5
+res: af, lkres: d1
+res: c1, lkres: e
+res: 57, lkres: 75
+res: cb, lkres: 72
+res: 28, lkres: 68
+final result    be c0 59 e2 b3 de 77 75
+res: d7, lkres: 71
+res: ae, lkres: 23
+res: ee, lkres: 2a
+res: db, lkres: ce
+res: 76, lkres: 73
+res: 5c, lkres: 7
+res: 2b, lkres: db
+res: 18, lkres: 15
+final result    66 03 50 55 03 0d c4 8b
+res: cc, lkres: b5
+res: 71, lkres: c
+res: 98, lkres: 5a
+res: a1, lkres: 4a
+res: 60, lkres: 7
+res: aa, lkres: c7
+res: a, lkres: 4a
+res: 60, lkres: 58
+final result    17 08 c0 e3 59 57 3e 65
+res: e2, lkres: eb
+res: ac, lkres: 21
+res: c7, lkres: 9c
+res: ea, lkres: 6f
+res: 2b, lkres: 19
+res: 7c, lkres: 32
+res: 18, lkres: 5b
+res: 1, lkres: ae
+final result    f7 53 bd 4a 12 7b 2b 8b
+res: fe, lkres: b5
+res: 71, lkres: 9f
+res: 65, lkres: 4
+res: 6f, lkres: e3
+res: 42, lkres: cc
+res: 49, lkres: 86
+res: b7, lkres: fe
+res: 6a, lkres: 63
+final result    49 07 b9 c3 76 8c 61 d2
+res: 29, lkres: 3d
+res: 5a, lkres: 36
+res: 2c, lkres: c6
+res: 91, lkres: a5
+res: ce, lkres: e4
+res: 78, lkres: 61
+res: 37, lkres: 6a
+res: e0, lkres: 6
+final result    ec da cd 17 ea ec 66 24
+res: 9d, lkres: ff
+res: 84, lkres: 26
+res: cc, lkres: 5c
+res: 9d, lkres: d5
+res: 5d, lkres: da
+res: e2, lkres: 91
+res: b9, lkres: 97
+res: 5b, lkres: e
+final result    9e 4d 22 51 83 c8 70 5e
+res: d3, lkres: c5
+res: cb, lkres: 96
+res: e, lkres: ec
+res: 19, lkres: 86
+res: 70, lkres: eb
+res: 2a, lkres: 1a
+res: 44, lkres: c9
+res: a9, lkres: a0
+final result    0e 09 7b 10 85 93 22 35
+res: c1, lkres: 50
+res: a6, lkres: 85
+res: 44, lkres: 61
+res: 72, lkres: 57
+res: b0, lkres: ff
+res: 2, lkres: a2
+res: 6f, lkres: b1
+res: 21, lkres: 7
+final result    71 1a be 60 b1 1b e3 21
+res: 2e, lkres: bc
+res: 24, lkres: 24
+res: 7c, lkres: 53
+res: 63, lkres: 28
+res: 36, lkres: d7
+res: c, lkres: 9e
+res: d7, lkres: 6e
+res: 43, lkres: e2
+final result    72 61 69 6e 5f 3b 29 00
+52 65 76 65 72 73 65 5f 5f 79 6f 75 72 5f 5f 62 72 61 69 6e 5f 3b 29 00
+Reverse__your__brain_;)
+$
+======================================================================
