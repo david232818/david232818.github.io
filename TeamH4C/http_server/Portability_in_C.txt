@@ -34,7 +34,19 @@
 그 예시로 소켓 레벨에 적용되는 SOL_SOCKET과 전송 프로토콜 중 하나인 TCP
 레벨에 적용되는 IPPROTO_TCP를 보인다.
 
+ C는 상대적으로 하드웨어에 가까운 언어로 시스템에 의존하는 특성이 매우 많다. 이를
+해소하기 위해 C 표준은 최소한의 기준을 정한다. 그리고 이를 구현하기 위해서
+시스템에 의존하는 부분은 최대한 고립시키고 추상적인 자료구조의 일부로 만든 다음
+이 자료구조를 다루는 함수를 작성한다. 그 예시로는 파일 기술자를 FILE 구조체의
+일부로 만들고 버퍼를 정의하여 그 버퍼에 저장하고 저장하는 것을 얻어오는 연산을
+주 연산으로 하고 read나 write syscall 등은 가능한 그 비중을 줄이는 표준 입출력이
+있고, 운영체제로부터 얻어온 메모리를 이중 연결 리스트, 단일 연결 리스트 등으로
+추상화된 자료구조의 대상으로 만들고 그 대상을 다루도록 한 malloc 함수 계열이 있다.
+그러나 유독 소켓 프로그래밍에서는 이러한 경향이 보이지 않는다.
+
 ---[ 2. References
 [1] Michael Kerrisk, "setsockopt(3)", man7.org, 2017. [Online].
 Available: https://man7.org/linux/man-pages/man3/setsockopt.3p.html,
 [Accessed May. 22, 2022]
+
+[2] K&R, "The C Programming Language 2nd Edition", Bell Labs
