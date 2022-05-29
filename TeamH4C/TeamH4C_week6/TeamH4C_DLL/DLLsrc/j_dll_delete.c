@@ -4,6 +4,7 @@
 
 #include "j_dll.h"
 
+/* j_dll_delete: delete dll */
 int j_dll_delete(j_dll_t *l)
 {
     j_dllnode_t *curr_node_ptr;
