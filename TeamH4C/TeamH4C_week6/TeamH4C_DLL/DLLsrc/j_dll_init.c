@@ -23,9 +23,10 @@ j_dll_t *j_dll_init(int (*umethod)(void *, void *),
     l->cmethod = cmethod;
     l->rmethod = rmethod;
     l->update = j_dll_update;
+    l->read = j_dll_read;
+    l->delete = j_dll_delete;
     l->node_search = j_dll_node_search;
     l->node_create = j_dll_node_create;
-    l->read = j_dll_read;
     l->node_update = j_dll_node_update;
     l->node_delete = j_dll_node_delete;
     return l;

@@ -19,6 +19,7 @@ typedef struct j_dll {
     int (*update)(struct j_dll *,
 		  j_dllnode_t *);
     int (*read)(struct j_dll *);
+    int (*delete)(struct j_dll *);
 
     j_dllnode_t* (*node_search)(struct j_dll *,
 				void *);
@@ -52,6 +53,9 @@ extern int j_dll_update(j_dll_t *list,
 
 /* j_dll_read: read all of dll node data */
 extern int j_dll_read(j_dll_t *list);
+
+/* j_dll_delete: delete dll */
+extern int j_dll_delete(j_dll_t *list);
 
 /* j_dll_node_search: search node by given data */
 extern j_dllnode_t *j_dll_node_search(j_dll_t *list,

@@ -49,9 +49,7 @@ int main()
 	return -1;
     printf("cnt: %zu\n", j_dll_cnt(dll));
 
-    if (dll->read(dll) == -1)
-	return -1;
-    
+
     searchdata = 12;
     if ((searched = dll->node_search(dll, &searchdata)) == NULL)
 	printf("Not found..\n");
@@ -71,6 +69,10 @@ int main()
     printf("update successful..\n");
     if (dll->read(dll) == -1)
 	return -1;
+
+    if (dll->delete(dll) == -1)
+	return -1;
+    printf("list delete successful..\n");
     return 0;
 }
 
