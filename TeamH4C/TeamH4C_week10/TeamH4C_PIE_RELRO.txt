@@ -1,0 +1,80 @@
+			[TeamH4C] PIE와 RELRO
+
+
+						작성자: 정권영
+
+
+
+---[ Contents
+     1. PIE
+     2. RELRO
+     3. References
+
+
+
+
+
+---[ 1. PIE
+ [2, p. 7]은 ASLR (Address Space Layout Randomization)이 프로그램을 실행할
+때마다 스택과 힙, non-prelinked 라이브러리의 주소에 대한 난수화를 보장한다고
+설명하면서 PIE (Position Independent Executable)의 기본 아이디어가 모든 메모리
+주소에 대한 난수화임을 설명하였다. 그리고 [2, p. 8]는 PIE는 실행 파일 뿐만 아니라
+실행 파일이 의존하는 동적 공유 객체 (Dynamic Shared Object, DSO)의 메모리
+주소도 난수화 한다고 설명하였다. 여기서 동적 공유 객체는 동적으로 링크된
+공유 라이브러리로 보인다. 이러한 PIE가 적용되어 컴파일된 실행 파일은 "shared
+object"로 인식된다.
+
+ 상기에 서술한 내용을 정리하면 PIE는 실행 파일과 실행 파일이 의존하는
+라이브러리에 대한 ASLR이라고 볼 수 있다. 즉, 확장된 ASLR이라고 볼 수 있는
+것이다. 따라서 PIE가 제시된 이유도 ASLR이 제시된 이유와 크게 다르지 않다.
+[2, pp. 10-12]는 예측가능한 메모리 주소를 가지는 실행 파일을 공격하는
+예시를 보이면서 PIE가 적용되었을 경우 공격이 성공할 확률은 (syscall 주소가
+맞을 확률) * (syscall에 전달할 문자열의 주소가 맞을 확률)이 되어 더욱
+작아지게 된다고 설명한다.
+
+ PIE는 실행 파일과 관련된 모든 메모리 주소를 난수화 시키므로 PLT, GOT,
+main 함수 또한 인덱스 정보만 남게 된다. 따라서 ROP 체인을 구성하는 것이
+어려워지게 된다. 그러나 메모리 읽기 프리미티브 (printf 함수 등과 같은 출력
+함수)가 존재한다면 런타임에 메모리 주소를 읽을 수 있고 시작 주소를 계산하여
+명령어를 실행하는 함수 (exec, system 함수 등)의 주소와 "/bin/sh"의 주소를
+계산할 수 있을 것이다. 그리고 메모리 쓰기 프리미티브 (버퍼 오버플로우를 허용하는
+함수, 포맷 스트링 취약점을 가지는 printf 등)로 상기의 함수를 호출하여 PIE를
+우회할 수 있을 것이다.
+
+ 상기에 서술한 우회 방법들은 메모리 읽기 프리미티브가 있어야만 실행 가능한
+방법이다. 즉, 메모리 읽기 프리미티브가 존재하지 않는다면 불가능한 방법이라는
+것이다. [3]은 PIE가 적용되었을 때는 메모리 주소를 예측할 필요가 있다고
+설명하면서 무차별 대입 공격을 통해 PIE가 적용된 프로그램에서 PIE를 우회하여
+공격하는 것이 가능함을 보였다. 이는 메모리 읽기 프리미티브가 없는 상황에서의
+우회 방법으로 볼 수 있다.
+
+---[ 2. RELRO
+ [4]는 형식 문자열에서 오동작이 발생할 수 있음을 보였고, [5]는 이러한 오동작
+(형식 문자열 버그)이 메모리 임의 쓰기 프리미티브로 기능할 수 있음을 보였다.
+이는 형식 문자열 버그로 GOT를 덮어쓸 수 있다는 의미이다. 그리고
+[1, Sec. 3.4]는 동적으로 링크된 라이브러리 함수들을 제거하고, GOT가 읽기만
+가능하도록 보장하는 RELRO를 통해 GOT를 덮어쓰는 공격이 방어될 수 있다고
+설명하였다.
+
+ RELRO는 GOT를 읽기 전용 영역으로 만들 뿐이기에 여전히 그 메모리 주소는
+읽을 수 있다. 따라서 ROP 체인을 구성하여 메모리 쓰기 프리미티브 (버퍼
+오버플로우를 허용하는 함수 등)를 통해 리턴 주소를 덮어쓰는 공격을
+막아내지 못한다. 다만, 이는 메모리 읽기 프리미티브를 요구한다.
+
+---[ References
+[1] Stefan Nicula, Razvan Daniel Zota, "Exploiting stack-based buffer
+overflow using modern day techniques", Procedia Computer Science, 2019
+
+[2] Grant Murphy, "POSITION INDEPENDENT EXECUTABLES", Red Hat Product
+Security Team, 2012
+
+[3] Adam 'pi3' Zabrocki, "Scraps of notes on remote stack overflow
+exploitation", Phrack Volumn 0x0e, Issue 0x43, Phile 0x0d of 0x10,
+2010
+
+[4] Barton P. Miller, et al., "An empirical study of the
+reliability of UNIX utilities", Communications of the ACM,
+Volume 33, Issue 12, 1990
+
+[5] gera, "Advances in format string exploitation",
+Phrack Issue 0x3b, Phile 0x07, 2002
