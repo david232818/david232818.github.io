@@ -1,0 +1,110 @@
+			[TeamH4C] UAF, Double Free Bug,
+			Type Confusion 취약점 및 공격기법
+
+
+			     	       	      작성자: 정권영
+
+
+
+---[ Contents
+     1. UAF
+     2. Double Free Bug
+     3. Type Confusion
+     4. References
+
+
+
+
+
+---[ 1. UAF
+ [1]은 UAF (Use After Free)를 free된 메모리를 참조하는 것으로 설명한다. 이는
+malloc 함수의 할당 전략과 관련이 있는 취약점으로 이 취약점을 이해하기 위해서는
+메모리 할당 함수의 할당 전략을 알 필요가 있다. 여기서는 GNU C Library의
+malloc 함수를 다룰 것이다.
+
+ [2]가 설명하는 GNU C Library malloc 함수의 내부동작에 의하면 malloc 함수는
+메모리를 arena의 bin으로 나누고 이 bin들의 리스트를 관리함으로써 sbrk, brk와
+같은 시스템 콜에 대한 인터페이스를 제공한다. 이때 이러한 bin 중에는 unsorted
+bin이 있고 이는 같은 크기의 메모리가 해제되고 재할당될 경우를 생각한 것으로
+메모리가 해제되면 메모리는 잠시 unsorted bin에 존재하게 된다. 그리고 만약
+다음 메모리 할당 요청이 해제된 메모리와 같은 크기라면 unsorted bin에 존재하는
+메모리를 할당하게 된다. 이는 malloc 함수의 성능을 개선하기 위한 할당전략이다.
+
+ 상기에 서술한 malloc 함수의 할당 전략은 다시 말하면 일정 크기의 메모리가
+할당된 후에 해제되고 다음 메모리 할당 요청이 같은 크기의 메모리를 요구한다면
+이전에 해제된 메모리를 할당한다는 것이다. 즉, 이전에 할당된 메모리 주소와
+같은 주소가 리턴된다는 것이다. 이때, 이전에 할당된 메모리에 저장된 데이터
+또한 그대로 유지된다. 이는 데이터의 무결성에 문제를 발생시킨다. 예를 들어,
+다음 코드를 보자.
+
+---
+uaf.c
+=======================================================
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[])
+{
+  int i;
+  unsigned char *mem1, *mem2, *mem3;
+
+  if (argc != 2)
+    return -1;
+  mem1 = malloc(128);
+  strcpy(mem1, argv[1]);
+  mem2 = malloc(128);
+  printf("mem1: %p\t%s\n", mem1, mem1);
+  printf("mem2: %p\n", mem2);
+  free(mem1);
+  mem3 = malloc(128);
+  printf("mem3: %p\t%s\n", mem3, mem3);
+  for (i = 0; i < 32; i++)
+    printf("%08x\n", *((int *) mem3 + i));
+  free(mem2);
+  free(mem3);
+  return 0;
+}
+=======================================================
+
+위 코드를 실행한 결과는 다음과 같다.
+
+=======================================================
+$ gcc uaf.c -o uaf
+$ ./uaf AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+mem1: 0x23fd010 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+mem2: 0x23fd0a0
+mem3: 0x23fd010 xK\277\236z^?
+9ebf4b78
+00007f7a
+9ebf4b78
+00007f7a
+41414141
+41414141
+41414141
+41414141
+41414141
+41414141
+00000000
+00000000
+00000000
+00000000
+00000000
+$
+=======================================================
+
+위 실행 결과를 보면 mem1과 mem3의 주소가 같고, mem1에 저장되었던 데이터의
+일부가 mem3에서 아직 남아있음을 알 수 있다. 따라서 mem3으로 어떤 작업을
+수행할 때 잔존하는 mem1의 데이터가 영향을 주게 되고 이는 프로그램 정지 또는
+실행 흐름의 변경으로 이어질 수 있다.
+
+---[ 2. Double Free Bug
+
+---[ 4. References
+[1] "CWE-416: Use After Free", CWE, 2022. [Online].
+Available: https://cwe.mitre.org/data/definitions/416.html,
+[Accessed Jul. 01, 2022]
+
+[2] Carlos Donell et al., "MallocInternals", glibc wiki, 2022.
+[Online]. Available: https://sourceware.org/glibc/wiki/MallocInternals,
+[Accessed Jul. 01, 2022]
