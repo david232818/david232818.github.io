@@ -17,18 +17,147 @@
 
 
 ---[ 1. UAF
- [1]은 UAF (Use After Free)를 free된 메모리를 참조하는 것으로 설명한다. 이는
-malloc 함수의 할당 전략과 관련이 있는 취약점으로 이 취약점을 이해하기 위해서는
-메모리 할당 함수의 할당 전략을 알 필요가 있다. 여기서는 GNU C Library의
-malloc 함수를 다룰 것이다.
+ UAF (Use After Free) 취약점은 이름에서도 유추할 수 있듯이 메모리를 free한
+후에도 이를 사용할 수 있을 때 발생한다. 이 취약점이 왜 가능한지 이해하기
+위해서는 malloc 함수의 할당전략에 대해 알 필요가 있다. 다만, 여기서는 Glibc
+2.31 버전의 malloc 함수를 다룰 것이다. 따라서 Glibc 버전에 따라 본 글에서
+다루는 내용과 차이가 있을 수 있다.
 
- [2]가 설명하는 GNU C Library malloc 함수의 내부동작에 의하면 malloc 함수는
-메모리를 arena의 bin으로 나누고 이 bin들의 리스트를 관리함으로써 sbrk, brk와
-같은 시스템 콜에 대한 인터페이스를 제공한다. 이때 이러한 bin 중에는 unsorted
-bin이 있고 이는 같은 크기의 메모리가 해제되고 재할당될 경우를 생각한 것으로
-메모리가 해제되면 메모리는 잠시 unsorted bin에 존재하게 된다. 그리고 만약
-다음 메모리 할당 요청이 해제된 메모리와 같은 크기라면 unsorted bin에 존재하는
-메모리를 할당하게 된다. 이는 malloc 함수의 성능을 개선하기 위한 할당전략이다.
+ [1]은 Malloc Algorithm과 Free Algorithm을 다음과 같이 설명한다.
+
+---
+Malloc Algorithm
+=======================================================
+@ Tcache에 적절한 (정확한 크기의) 청크가 있다면, 이것이 호출자에게 리턴된다.
+이때, 더 큰 크기의 bin로부터 가용한 청크를 사용하려고 하지 않는다.
+
+@ 요청이 충분히 크다면, mmap()이 호출되어 운영체제에게 직접적인 메모리 요청을
+하게 된다. 이때 mmap'ing의 임계값은 M_MMAP_THRESHOLD가 변경 (mallopt()
+문서화 참고) 되지 않는 한, 동적이고, 한 번에 매핑가능한 메모리의 크기에
+제한이 있을 수 있다.
+
+@ 만약 적절한 fastbin이 청크를 가지고 있다면, 이를 사용한다. 만약 추가적인
+청크가 가용하다면 먼저 tcache를 채운다.
+
+@ 만약 적절한 smallbin이 청크를 가지고 있다면, 이를 사용하고, 또한 먼저
+tcache를 채운다.
+
+@ 만약 요청된 크기가 "크다면", fastbins에 존재하는 모든 것을 unsorted
+bin으로 옮기면서 병합한다.
+
+@ Unsorted list에서 병합하면서 청크를 꺼내서 small/large bins에 넣는다.
+적절한 크기의 청크가 발견되면 이를 사용한다.
+
+@ 만약 요청된 크기가 "크다면", 적절한 large bin을 찾고, 점점 큰 bins를
+찾악나가며, 충분히 큰 청크가 발견될 때까지 찾는다.
+
+@ 아직 fastbins가 여전히 청크를 갖는다면 (이는 "작은" 요청에서 발생할 수
+있다), 병합하고 이전 두 단계를 반복한다.
+
+@ "top" 청크의 부분을 나누고, 이는 "top"을 미리 확장할 수도 있다.
+=======================================================
+
+---
+Free Algorithm
+=======================================================
+@ Tcache에 넣을 곳이 있다면, 청크를 저장하고 리턴한다.
+
+@ 청크가 충분히 작다면 , 적절한 fastbin에 저장한다.
+
+@ 만약 청크가 mmap되었다면, munmap한다.
+
+@ 청크가 또다른 해제된 청크와 인접한지 확인하고 인접하다면,
+병합한다.
+
+@ 해제된 청크가 이제 "top" 청크가 되지 않는한, unsorted list에
+위치시킨다.
+
+@ 만약 청크가 충분히 크다면, 어떤 fastbins과든 병합하고 top 청크가
+시스템에 메모리를 줄 수 있을정도로 충분히 큰지 확인한다. 이는 성능
+문제로 인해 수행되지 않을 수 있고 malloc 또는 다른 호출에서 수행될
+수 있다.
+=======================================================
+
+여기서 관심을 가지는 상황은 일정 크기의 메모리가 할당되고 해제된 후에
+다시 같은 크기로 할당하는 경우이다. 따라서 초기 할당보다는 이에 따른
+해제와 재할당에 더 초점을 맞출 것이다. 그리고 Glibc 2.31에는 상기에
+서술한 알고리즘에서 볼 수 있듯이 tcache가 도입되어 있고 일정 크기의
+메모리 할당/해제에 대해서는 가장 높은 우선순위를 가진다. 그래서 여기서는
+tcache의 메모리 할당과 해제를 다룰 것이다.
+
+ 먼저 메모리의 해제를 살펴보자. [2]는 free 함수를 다음과 같이 기술한다.
+
+---
+free 함수
+=======================================================
+void
+__libc_free (void *mem)
+{
+  mstate ar_ptr;
+  mchunkptr p;                          /* chunk corresponding to mem */
+
+  void (*hook) (void *, const void *)
+    = atomic_forced_read (__free_hook);
+  if (__builtin_expect (hook != NULL, 0))
+    {
+      (*hook)(mem, RETURN_ADDRESS (0));
+      return;
+    }
+
+  if (mem == 0)                              /* free(0) has no effect */
+    return;
+
+  p = mem2chunk (mem);
+
+  if (chunk_is_mmapped (p))                       /* release mmapped memory. */
+    {
+      /* See if the dynamic brk/mmap threshold needs adjusting.
+	 Dumped fake mmapped chunks do not affect the threshold.  */
+      if (!mp_.no_dyn_threshold
+          && chunksize_nomask (p) > mp_.mmap_threshold
+          && chunksize_nomask (p) <= DEFAULT_MMAP_THRESHOLD_MAX
+	  && !DUMPED_MAIN_ARENA_CHUNK (p))
+        {
+          mp_.mmap_threshold = chunksize (p);
+          mp_.trim_threshold = 2 * mp_.mmap_threshold;
+          LIBC_PROBE (memory_mallopt_free_dyn_thresholds, 2,
+                      mp_.mmap_threshold, mp_.trim_threshold);
+        }
+      munmap_chunk (p);
+      return;
+    }
+
+  MAYBE_INIT_TCACHE ();
+
+  ar_ptr = arena_for_chunk (p);
+  _int_free (ar_ptr, p, 0);
+}
+libc_hidden_def (__libc_free)
+=======================================================
+
+위 코드에서 hook과 mmaped if 블록은 관심대상이 아니다. 그럼 free 함수의
+동작은 전달된 메모리 주소가 NULL인지 아닌지 확인하고 메모리를 청크로 변환한
+다음 메모리 해제를 수행하는 것이 된다. 이때 [2]는 mem2chunk를 매크로 함수로
+다음과 같이 정의한다.
+
+---
+mem2chunk의 정의
+=======================================================
+#define mem2chunk(mem) ((mchunkptr)((char*)(mem) - 2*SIZE_SZ))
+=======================================================
+
+그리고 tcache가 아직 초기화되지 않은 경우에 tcache_init()을 쓰기 위해
+MAYBE_INIT_TCACHE 매크로를 사용하는데 [2]는 이를 다음과 같이 정의한다.
+
+---
+MAYBE_INIT_TCACHE의 정의
+=======================================================
+# define MAYBE_INIT_TCACHE() \
+  if (__glibc_unlikely (tcache == NULL)) \
+    tcache_init();
+=======================================================
+
+
 
  상기에 서술한 malloc 함수의 할당 전략은 다시 말하면 일정 크기의 메모리가
 할당된 후에 해제되고 다음 메모리 할당 요청이 같은 크기의 메모리를 요구한다면
@@ -101,10 +230,10 @@ $
 ---[ 2. Double Free Bug
 
 ---[ 4. References
-[1] "CWE-416: Use After Free", CWE, 2022. [Online].
-Available: https://cwe.mitre.org/data/definitions/416.html,
-[Accessed Jul. 01, 2022]
-
-[2] Carlos Donell et al., "MallocInternals", glibc wiki, 2022.
+[1] Carlos Donell et al., "MallocInternals", glibc wiki, 2022.
 [Online]. Available: https://sourceware.org/glibc/wiki/MallocInternals,
 [Accessed Jul. 01, 2022]
+
+[2] "malloc.c", GNU, 2020. [Online].
+Available: http://ftp.gnu.org/gnu/glibc/glibc-2.31.tar.gz,
+[Accessed Jul. 02, 2022]
