@@ -436,7 +436,7 @@ struct foo {
        void (*func)(void);
 };
 
-/* vuln: 0x400646
+/* vuln: 0x400646 */
 void vuln(void)
 {
 	system("/bin/sh");
