@@ -349,7 +349,7 @@ s->yd = (((long) s->buffer[ 8] << 24) | ((long) s->buffer[ 9] << 16) |
 	 ((long) s->buffer[10] <<  8) | (long) s->buffer[11])
       = 0x1
 s->order = s->buffer[18] = 0x3
-s->ii[iindex[s->order & 7][LAYER]] s->ii[0] = s->dl => ++s->ii[0] = 0x1
+s->ii[iindex[s->order & 7][LAYER]] s->ii[0] = s->dl = 0x00 => ++s->ii[0] = 0x1
 =======================================================
 
 위 결과를 jbg_dec_getsize()에 대입하면 다음과 같이 계산됨을 알 수 있다.
