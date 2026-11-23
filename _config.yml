@@ -1,15 +1,15 @@
-title: Parchment
-author: ostin
+title: oMAcS
+author: oMAcS
 subtitle: The life of a frustrated engineer
 
-url: "https://rahulbothra.com"
-baseurl: "/parchment"
+url: ""
+baseurl: "/"
 
 footer_only_homepage: true
 footer_url: "https://github.com/rhl-bthr"
 footer_text: "Theme by rhl-bthr"
 
-profile-picture: assets/profile.png
+profile-picture: https://omacs.prose.sh/luna.gif
 favicon_location: assets/favicon.ico
 
 permalink: /:year-:month-:day-:title/
