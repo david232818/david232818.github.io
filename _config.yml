@@ -22,3 +22,8 @@ navbar:
    link: "about"
  - name: "Resume"
    absolute-link: ""
+
+markdown: kramdown
+kramdown:
+    input: GFM
+    hard_wrap: false
